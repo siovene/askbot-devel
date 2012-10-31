@@ -3,9 +3,9 @@
 /* Variables for Colors*/
 
 @header-color:#16160f;
-@link:#1b79bd;
+@link:#B74329;
 @question-link:#464646;
-@button-label:#4a757f;
+@button-label:#fefefe;
 @section-title:#7ea9b3;
 @info-text:#707070;
 @info-text-dark:#525252;
@@ -28,16 +28,16 @@
     color:@button-label;
     font-family:@main-font;
     .text-shadow(0px,1px,0px,#c6d9dd);
-    border-top:#eaf2f3 1px solid;
-    .linear-gradient(#d1e2e5,#a9c2c7);
+    border-top:lighten(@link, 20%) 1px solid;
+    .linear-gradient(@link,darken(@link, 10%));
     .rounded-corners(4px);
-    .box-shadow(1px, 1px, 2px, #636363)
+    .box-shadow(1px, 1px, 2px, #333)
 }
 
 .button-style-hover{
-    .linear-gradient(#cde5e9,#94b3ba);
+    .linear-gradient(darken(@link, 10%), darken(@link, 15%));
     text-decoration:none;
-    .text-shadow(0px, 1px, 0px, #c6d9dd);
+    .text-shadow(0px, 1px, 0px, #444);
 }
 
 /* General styles for gradients */
