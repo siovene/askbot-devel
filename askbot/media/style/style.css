@@ -316,6 +316,9 @@ body.user-messages {
 
   height: 20px;
   padding-bottom: 5px;
+  float: right;
+  /* for #header.with-logo it is modified */
+
 }
 #userToolsNav a {
   height: 35px;
@@ -346,17 +349,15 @@ body.user-messages {
 #metaNav {
   /* Top Navigation bar containing links for tags, people and badges, check widgets/header.html */
 
-  float: right;
-  /* for #header.with-logo it is modified */
-
   margin-right: 7px;
+  float: left;
 }
 #metaNav a {
   color: #e2e2ae;
   padding: 0px 0px 0px 35px;
   height: 35px;
   line-height: 25px;
-  margin: 5px 0px 0px 10px;
+  margin: 5px 20px 0px 0px;
   font-size: 18px;
   font-weight: 100;
   text-decoration: none;
@@ -436,7 +437,7 @@ body.user-messages {
   right: 0px;
 }
 #header.without-logo #userToolsNav {
-  float: left;
+  float: right;
   margin-top: 7px;
 }
 #secondaryHeader {
