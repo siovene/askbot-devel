@@ -2066,25 +2066,49 @@ var socialSharing = function(){
     var share_page = function(service_name){
         if (SERVICE_DATA[service_name]){
             var url = SERVICE_DATA[service_name]['url'];
-            $.ajax({
-                async: false,
-                url: "http://json-tinyurl.appspot.com/?&callback=?",
-                dataType: "json",
-                data: {'url':URL},
-                success: function(data){
-                    url = url.replace('{URL}', data.tinyurl);
-                },
-                error: function(data){
-                    url = url.replace('{URL}', URL);
-                },
-                complete: function(data){
-                    url = url.replace('{TEXT}', TEXT);
-                    var params = SERVICE_DATA[service_name]['params'];
-                    if(!window.open(url, "sharing", params)){
-                        window.location.href=url;
-                    }
+
+            var set_sharing_url = function(u) {
+                url = url.replace('{URL}', u);
+            }
+
+            var set_sharing_text = function(t) {
+                url = url.replace('{TEXT}', t);
+            }
+
+            var open_sharing_window = function() {
+                var params = SERVICE_DATA[service_name]['params'];
+                if(!window.open(url, "sharing", params)){
+                    window.location.href=url;
                 }
-            });
+            }
+
+            if (askbot['settings']['tinyurl_enabled']) {
+                $.ajax({
+                    async: false,
+                    url: "http://json-tinyurl.appspot.com/?&callback=?",
+                    dataType: "json",
+                    data: {'url':URL},
+                    success: function(data){
+                        set_sharing_url(data.tinyurl);
+                    },
+                    error: function(data){
+                        set_sharing_url(URL);
+                    },
+                    complete: function(data){
+                        set_sharing_text(TEXT);
+                        open_sharing_window();
+                    }
+                });
+            } else {
+                if (askbot['settings']['question_short_url']) {
+                    set_sharing_url(askbot['settings']['question_short_url'] + '/' +
+                                    askbot['data']['question_id'] + '/');
+                } else {
+                    set_sharing_url(window.location.href);
+                }
+                set_sharing_text(TEXT);
+                open_sharing_window();
+            }
         }
     }
 
