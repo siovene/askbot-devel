@@ -13,4 +13,6 @@
     askbot['settings']['minQuestionBodyLength'] = {{settings.MIN_QUESTION_BODY_LENGTH}};
     askbot['settings']['minAnswerBodyLength'] = {{settings.MIN_ANSWER_BODY_LENGTH}};
     askbot['settings']['tag_editor'] = '{{ tag_editor_settings|escapejs }}';
+    askbot['settings']['tinyurl_enabled'] = '{{settings.ENABLE_TINYURL}}' === 'True';
+    askbot['settings']['question_short_url'] = '{{settings.QUESTION_SHORT_URL}}'
 </script>

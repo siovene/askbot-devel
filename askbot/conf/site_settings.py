@@ -71,6 +71,20 @@ settings.register(
 )
 
 settings.register(
+    livesettings.StringValue(
+        QA_SITE_SETTINGS,
+        'QUESTION_SHORT_URL',
+        description=_(
+                'Shortened base URL for single questions on your Q&A forum, '
+                'must start with http or https. It will be used if you have '
+                'disabled Tinyurl and it may or may not include the '
+                '/question/ part, according to how you have configured your '
+                'webserver'
+            ),
+    )
+)
+
+settings.register(
     livesettings.BooleanValue(
         QA_SITE_SETTINGS,
         'ENABLE_GREETING_FOR_ANON_USER',

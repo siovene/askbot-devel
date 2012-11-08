@@ -15,6 +15,15 @@ SOCIAL_SHARING = ConfigurationGroup(
 settings.register(
     BooleanValue(
         SOCIAL_SHARING,
+        'ENABLE_TINYURL',
+        default=True,
+        description=_('Check to enable shortening the URLs with tinyurl')
+    )
+)
+
+settings.register(
+    BooleanValue(
+        SOCIAL_SHARING,
         'ENABLE_SHARING_TWITTER',
         default=True,
         description=_('Check to enable sharing of questions on Twitter')
