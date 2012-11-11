@@ -3,6 +3,12 @@
        href="{{user.get_absolute_url()}}?sort=reputation"
 >{% trans %}reputation:{% endtrans %} {{user.reputation}}</a>
 {%- endif -%}
+
+
+{%- if reputation_mode != 'hidden' and badges_mode == 'public' -%}
+,
+{% endif %}
+
 {% if badges_mode == 'public' %}
     {%- if user.gold or user.silver or user.bronze %}
     <a class="user-micro-info"
