@@ -128,7 +128,9 @@ Attacklab.wmdBase = function(){
 		}
 		else {
 			// Other browsers.
-			elem.addEventListener(event, listener, false);
+			if (elem && elem.addEventListener) {
+				elem.addEventListener(event, listener, false);
+			}
 		}
 	};
 
