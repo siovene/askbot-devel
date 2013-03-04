@@ -111,6 +111,7 @@ ANSWER_SORT_METHODS = (#no translations needed here
 DEFAULT_POST_SORT_METHOD = 'activity-desc'
 POST_SCOPE_LIST = (
     ('all', _('all')),
+    ('critiqueRequests', _('critique requests')),
     ('unanswered', _('unanswered')),
     ('favorite', _('favorite')),
 )

@@ -286,6 +286,13 @@ class ThreadManager(BaseQuerySetManager):
         else:
             meta_data['non_existing_tags'] = list()
 
+        if search_state.scope == 'critiqueRequests':
+            qs = qs.filter(posts__thread__tags__name='critique-request')
+        else:
+            qs = qs.exclude(
+                posts__thread__tags__name='critique-request',
+            )
+
         if search_state.scope == 'unanswered':
             qs = qs.filter(closed = False) # Do not show closed questions in unanswered section
             if askbot_settings.UNANSWERED_QUESTION_MEANING == 'NO_ANSWERS':

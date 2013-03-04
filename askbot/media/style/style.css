@@ -503,7 +503,7 @@ body.user-messages {
 
   display: inline-block;
   background-color: #fff;
-  width: 400px;
+  width: 270px;
   border: 1px solid #c9c9b5;
   float: right;
   height: 42px;
@@ -524,10 +524,10 @@ body.user-messages {
   vertical-align: top;
 }
 #searchBar .searchInput {
-  width: 340px;
+  width: 212px;
 }
 #searchBar .searchInputCancelable {
-  width: 305px;
+  width: 177px;
 }
 #searchBar .logoutsearch {
   width: 337px;
@@ -565,13 +565,13 @@ body.user-messages {
   color: #d84040;
 }
 body.anon #searchBar {
-  width: 500px;
+  width: 370px;
 }
 body.anon #searchBar .searchInput {
-  width: 440px;
+  width: 312px;
 }
 body.anon #searchBar .searchInputCancelable {
-  width: 405px;
+  width: 277px;
 }
 #askButton {
   /* check blocks/secondary_header.html and widgets/ask_button.html*/
