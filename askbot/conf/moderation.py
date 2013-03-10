@@ -5,7 +5,7 @@ from askbot.conf.super_groups import DATA_AND_FORMATTING
 from askbot.deps.livesettings import ConfigurationGroup
 from askbot.deps.livesettings import BooleanValue
 from django.core.cache import cache
-from django.utils.translation import ugettext as _
+from django.utils.translation import ugettext_lazy as _
 
 def empty_cache_callback(old_value, new_value):
     """used to clear cache on change of certain values"""
@@ -27,5 +27,19 @@ settings.register(
         default = False,
         description = _('Enable content moderation'),
         update_callback = empty_cache_callback
+    )
+)
+
+settings.register(
+    BooleanValue(
+        MODERATION,
+        'ENABLE_TAG_MODERATION',
+        default = False,
+        description = _('Enable tag moderation'),
+        help_text = _(
+            'If enabled, any new tags will not be applied '
+            'to the questions, but emailed to the moderators. '
+            'To use this feature, tags must be optional.'
+        )
     )
 )

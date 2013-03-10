@@ -1,16 +1,15 @@
 from datetime import datetime
 
-from django.core import exceptions
-from django.template import Context
+from django.template import RequestContext
+from django.template.loader import get_template
+from django.shortcuts import render
 from django.http import HttpResponse, Http404
 from django.views.decorators import csrf
 from django.core.urlresolvers import reverse
 from django.shortcuts import redirect, get_object_or_404
-from django.views.decorators.cache import cache_page
 
 from django.contrib.auth.decorators import login_required
 
-from askbot.skins.loaders import render_into_skin, get_template
 from askbot.conf import settings as askbot_settings
 from askbot.utils import decorators
 from askbot import models
@@ -47,7 +46,7 @@ def widgets(request):
         'question_widgets': models.QuestionWidget.objects.all().count(),
         'page_class': 'widgets'
     }
-    return render_into_skin('embed/widgets.html', data, request)
+    return render(request, 'embed/widgets.html', data)
 
 @csrf.csrf_protect
 def ask_widget(request, widget_id):
@@ -96,7 +95,7 @@ def ask_widget(request, widget_id):
             }
             if request.user.is_authenticated():
                 data_dict['author'] = request.user
-                question = post_question(data_dict, request)
+                #question = post_question(data_dict, request)
                 return redirect('ask_by_widget_complete')
             else:
                 request.session['widget_question'] = data_dict
@@ -129,7 +128,7 @@ def ask_widget(request, widget_id):
             'widget': widget,
             'editor_type': askbot_settings.EDITOR_TYPE
            }
-    return render_into_skin('embed/ask_by_widget.html', data, request)
+    return render(request, 'embed/ask_by_widget.html', data)
 
 @login_required
 def ask_widget_complete(request):
@@ -144,7 +143,7 @@ def ask_widget_complete(request):
         del request.session['widget_css']
 
     data = {'question_url': question_url, 'custom_css': custom_css}
-    return render_into_skin('embed/ask_widget_complete.html', data, request)
+    return render(request, 'embed/ask_widget_complete.html', data)
 
 
 @decorators.admins_only
@@ -155,9 +154,10 @@ def list_widgets(request, model):
             'widgets': widgets,
             'widget_name': model
            }
-    return render_into_skin('embed/list_widgets.html', data, request)
+    return render(request, 'embed/list_widgets.html', data)
 
 @decorators.admins_only
+@csrf.csrf_protect
 def create_widget(request, model):
     form_class = _get_form(model)
     model_class = _get_model(model)
@@ -173,9 +173,10 @@ def create_widget(request, model):
     data = {'form': form,
             'action': 'edit',
             'widget_name': model}
-    return render_into_skin('embed/widget_form.html', data, request)
+    return render(request, 'embed/widget_form.html', data)
 
 @decorators.admins_only
+@csrf.csrf_protect
 def edit_widget(request, model, widget_id):
     model_class = _get_model(model)
     form_class = _get_form(model)
@@ -212,9 +213,10 @@ def edit_widget(request, model, widget_id):
     data = {'form': form,
             'action': 'edit',
             'widget_name': model}
-    return render_into_skin('embed/widget_form.html', data, request)
+    return render(request, 'embed/widget_form.html', data)
 
 @decorators.admins_only
+@csrf.csrf_protect
 def delete_widget(request, model, widget_id):
     model_class = _get_model(model)
     widget = get_object_or_404(model_class, pk=widget_id)
@@ -222,28 +224,35 @@ def delete_widget(request, model, widget_id):
         widget.delete()
         return redirect('list_widgets', model=model)
     else:
-        return render_into_skin('embed/delete_widget.html',
-                {'widget': widget, 'widget_name': model}, request)
+        return render(
+            request,
+            'embed/delete_widget.html',
+            {'widget': widget, 'widget_name': model}
+        )
 
 def render_ask_widget_js(request, widget_id):
     widget = get_object_or_404(models.AskWidget, pk=widget_id)
     variable_name = "AskbotAskWidget%d" % widget.id
-    content_tpl =  get_template('embed/askbot_widget.js', request)
-    context_dict = {'widget': widget,
-                    'host': request.get_host(),
-                    'variable_name': variable_name}
-    content =  content_tpl.render(Context(context_dict))
+    content_tpl = get_template('embed/askbot_widget.js')
+    context_dict = {
+        'widget': widget,
+        'host': request.get_host(),
+        'variable_name': variable_name
+    }
+    content =  content_tpl.render(RequestContext(request, context_dict))
     return HttpResponse(content, mimetype='text/javascript')
 
 def render_ask_widget_css(request, widget_id):
     widget = get_object_or_404(models.AskWidget, pk=widget_id)
     variable_name = "AskbotAskWidget%d" % widget.id
-    content_tpl =  get_template('embed/askbot_widget.css', request)
-    context_dict = {'widget': widget,
-                    'host': request.get_host(),
-                    'editor_type': askbot_settings.EDITOR_TYPE,
-                    'variable_name': variable_name}
-    content =  content_tpl.render(Context(context_dict))
+    content_tpl = get_template('embed/askbot_widget.css')
+    context_dict = {
+        'widget': widget,
+        'host': request.get_host(),
+        'editor_type': askbot_settings.EDITOR_TYPE,
+        'variable_name': variable_name
+    }
+    content =  content_tpl.render(RequestContext(request, context_dict))
     return HttpResponse(content, mimetype='text/css')
 
 def question_widget(request, widget_id):
@@ -277,4 +286,4 @@ def question_widget(request, widget_id):
              'widget': widget
            }
 
-    return render_into_skin('embed/question_widget.html', data, request)
+    return render(request, 'embed/question_widget.html', data)

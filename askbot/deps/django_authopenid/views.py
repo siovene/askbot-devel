@@ -33,6 +33,7 @@
 import datetime
 from django.http import HttpResponseRedirect, get_host, Http404
 from django.http import HttpResponse
+from django.http import HttpResponseBadRequest
 from django.template import RequestContext, Context
 from django.conf import settings as django_settings
 from askbot.conf import settings as askbot_settings
@@ -41,17 +42,20 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth import authenticate
 from django.core.urlresolvers import reverse
 from django.forms.util import ErrorList
+from django.shortcuts import render
+from django.template.loader import get_template
 from django.views.decorators import csrf
 from django.utils.encoding import smart_unicode
+from askbot.utils.functions import generate_random_key
 from django.utils.html import escape
 from django.utils.translation import ugettext as _
 from django.utils.safestring import mark_safe
 from askbot.mail import send_mail
 from recaptcha_works.decorators import fix_recaptcha_remote_ip
-from askbot.skins.loaders import render_into_skin, get_template
 from askbot.deps.django_authopenid.ldap_auth import ldap_create_user
 from askbot.deps.django_authopenid.ldap_auth import ldap_authenticate
 from askbot.utils.loading import load_module
+from sanction.client import Client as OAuth2Client
 from urlparse import urlparse
 
 from openid.consumer.consumer import Consumer, \
@@ -169,7 +173,7 @@ def logout_page(request):
         'page_class': 'meta',
         'have_federated_login_methods': util.have_enabled_federated_login_methods()
     }
-    return render_into_skin('authopenid/logout.html', data, request)
+    return render(request, 'authopenid/logout.html', data)
 
 def get_url_host(request):
     if request.is_secure():
@@ -262,6 +266,72 @@ def not_authenticated(func):
             return HttpResponseRedirect(get_next_url(request))
         return func(request, *args, **kwargs)
     return decorated
+
+def complete_oauth2_signin(request):
+    if 'next_url' in request.session:
+        next_url = request.session['next_url']
+        del request.session['next_url']
+    else:
+        next_url = reverse('index')
+
+    if 'error' in request.GET:
+        return HttpResponseRedirect(reverse('index'))
+
+    csrf_token = request.GET.get('state', None)
+    if csrf_token is None or csrf_token != request.session.pop('oauth2_csrf_token'):
+        return HttpResponseBadRequest()
+
+    providers = util.get_enabled_login_providers()
+    provider_name = request.session.pop('provider_name')
+    params = providers[provider_name]
+    assert(params['type'] == 'oauth2')
+
+    client_id = getattr(
+            askbot_settings,
+            provider_name.upper() + '_KEY'
+        )
+
+    client_secret = getattr(
+            askbot_settings,
+            provider_name.upper() + '_SECRET'
+        )
+
+    client = OAuth2Client(
+            token_endpoint=params['token_endpoint'],
+            resource_endpoint=params['resource_endpoint'],
+            redirect_uri=askbot_settings.APP_URL + reverse('user_complete_oauth2_signin'),
+            client_id=client_id,
+            client_secret=client_secret
+        )
+
+    client.request_token(
+        code=request.GET['code'],
+        parser=params['response_parser']
+    )
+
+    #todo: possibly set additional parameters here
+    user_id = params['get_user_id_function'](client)
+
+    user = authenticate(
+                oauth_user_id = user_id,
+                provider_name = provider_name,
+                method = 'oauth'
+            )
+
+    logging.debug('finalizing oauth signin')
+
+    request.session['email'] = ''#todo: pull from profile
+    request.session['username'] = ''#todo: pull from profile
+
+    return finalize_generic_signin(
+                        request = request,
+                        user = user,
+                        user_identifier = user_id,
+                        login_provider_name = provider_name,
+                        redirect_url = next_url
+                    )
+
+
 
 def complete_oauth_signin(request):
     if 'next_url' in request.session:
@@ -478,12 +548,10 @@ def signin(request, template_name='authopenid/signin.html'):
             elif login_form.cleaned_data['login_type'] == 'oauth':
                 try:
                     #this url may need to have "next" piggibacked onto
-                    callback_url = reverse('user_complete_oauth_signin')
-
                     connection = util.OAuthConnection(
-                                        provider_name,
-                                        callback_url = callback_url
-                                    )
+                                    provider_name,
+                                    callback_url=reverse('user_complete_oauth_signin')
+                                )
 
                     connection.start()
 
@@ -502,37 +570,28 @@ def signin(request, template_name='authopenid/signin.html'):
                         ) % {'provider': provider_name}
                     request.user.message_set.create(message = msg)
 
-            elif login_form.cleaned_data['login_type'] == 'facebook':
-                #have to redirect for consistency
-                #there is a requirement that 'complete_signin'
+            elif login_form.cleaned_data['login_type'] == 'oauth2':
                 try:
-                    #this call may raise FacebookError
-                    user_id = util.get_facebook_user_id(request)
-
-                    user = authenticate(
-                                method = 'facebook',
-                                facebook_user_id = user_id
-                            )
-
-                    return finalize_generic_signin(
-                                    request = request,
-                                    user = user,
-                                    user_identifier = user_id,
-                                    login_provider_name = provider_name,
-                                    redirect_url = next_url
-                                )
-
-                except util.FacebookError, e:
+                    csrf_token = generate_random_key(length=32)
+                    redirect_url = util.get_oauth2_starter_url(provider_name, csrf_token)
+                    request.session['oauth2_csrf_token'] = csrf_token
+                    request.session['provider_name'] = provider_name
+                    return HttpResponseRedirect(redirect_url)
+                except util.OAuthError, e:
                     logging.critical(unicode(e))
                     msg = _('Unfortunately, there was some problem when '
                             'connecting to %(provider)s, please try again '
                             'or use another provider'
-                        ) % {'provider': 'Facebook'}
+                        ) % {'provider': provider_name}
                     request.user.message_set.create(message = msg)
 
             elif login_form.cleaned_data['login_type'] == 'wordpress_site':
                 #here wordpress_site means for a self hosted wordpress blog not a wordpress.com blog
-                wp = Client(askbot_settings.WORDPRESS_SITE_URL, login_form.cleaned_data['username'], login_form.cleaned_data['password'])
+                wp = Client(
+                        askbot_settings.WORDPRESS_SITE_URL,
+                        login_form.cleaned_data['username'],
+                        login_form.cleaned_data['password']
+                    )
                 try:
                     wp_user = wp.call(GetUserInfo())
                     custom_wp_openid_url = '%s?user_id=%s' % (wp.url, wp_user.user_id)
@@ -547,7 +606,7 @@ def signin(request, template_name='authopenid/signin.html'):
                                     user_identifier = custom_wp_openid_url,
                                     login_provider_name = provider_name,
                                     redirect_url = next_url
-                                    )
+                                )
                 except WpFault, e:
                     logging.critical(unicode(e))
                     msg = _('The login password combination was not correct')
@@ -721,7 +780,7 @@ def show_signin_view(
     data['major_login_providers'] = major_login_providers.values()
     data['minor_login_providers'] = minor_login_providers.values()
 
-    return render_into_skin(template_name, data, request)
+    return render(request, template_name, data)
 
 @login_required
 def delete_login_method(request):
@@ -901,7 +960,8 @@ def register(request, login_provider_name=None, user_identifier=None):
     email = request.session.get('email', '')
     logging.debug('request method is %s' % request.method)
 
-    register_form = forms.OpenidRegisterForm(
+    form_class = forms.get_registration_form_class()
+    register_form = form_class(
                 initial={
                     'next': next_url,
                     'username': request.session.get('username', ''),
@@ -929,9 +989,10 @@ def register(request, login_provider_name=None, user_identifier=None):
         login_provider_name = request.session['login_provider_name']
 
         logging.debug('trying to create new account associated with openid')
-        register_form = forms.OpenidRegisterForm(request.POST)
+        form_class = forms.get_registration_form_class()
+        register_form = form_class(request.POST)
         if not register_form.is_valid():
-            logging.debug('OpenidRegisterForm is INVALID')
+            logging.debug('registration form is INVALID')
         else:
             username = register_form.cleaned_data['username']
             email = register_form.cleaned_data['email']
@@ -963,7 +1024,7 @@ def register(request, login_provider_name=None, user_identifier=None):
             else:
                 request.session['username'] = username
                 request.session['email'] = email
-                key = util.generate_random_key()
+                key = generate_random_key()
                 email = request.session['email']
                 send_email_key(email, key, handler_url_name='verify_email_and_register')
                 request.session['validation_code'] = key
@@ -993,7 +1054,7 @@ def register(request, login_provider_name=None, user_identifier=None):
         'login_type':'openid',
         'gravatar_faq_url':reverse('faq') + '#gravatar',
     }
-    return render_into_skin('authopenid/complete.html', data, request)
+    return render(request, 'authopenid/complete.html', data)
 
 def signin_failure(request, message):
     """
@@ -1052,7 +1113,7 @@ def verify_email_and_register(request):
             return HttpResponseRedirect(reverse('index'))
     else:
         data = {'page_class': 'validate-email-page'}
-        return render_into_skin('authopenid/verify_email.html', data, request)
+        return render(request, 'authopenid/verify_email.html', data)
 
 @not_authenticated
 @decorators.valid_password_login_provider_required
@@ -1106,7 +1167,7 @@ def signup_with_password(request):
                 request.session['email'] = email
                 request.session['password'] = password
                 #todo: generate a key and save it in the session
-                key = util.generate_random_key()
+                key = generate_random_key()
                 email = request.session['email']
                 send_email_key(email, key, handler_url_name='verify_email_and_register')
                 request.session['validation_code'] = key
@@ -1138,10 +1199,10 @@ def signup_with_password(request):
                 'minor_login_providers': minor_login_providers.values(),
                 'login_form': login_form
             }
-    return render_into_skin(
+    return render(
+                request,
                 'authopenid/signup_with_password.html',
-                context_data,
-                request
+                context_data
             )
     #what if request is not posted?
 
@@ -1201,11 +1262,11 @@ def send_email_key(email, key, handler_url_name='user_account_recover'):
                             '?validation_code=' + key
     }
     template = get_template('authopenid/email_validation.html')
-    message = template.render(data)
+    message = template.render(data)#todo: inject language preference
     send_mail(subject, message, django_settings.DEFAULT_FROM_EMAIL, [email])
 
 def send_user_new_email_key(user):
-    user.email_key = util.generate_random_key()
+    user.email_key = generate_random_key()
     user.save()
     send_email_key(user.email, user.email_key)
 
@@ -1273,4 +1334,4 @@ def validation_email_sent(request):
         'change_email_url': reverse('user_changeemail'),
         'action_type': 'validate'
     }
-    return render_into_skin('authopenid/changeemail.html', data, request)
+    return render(request, 'authopenid/changeemail.html', data)

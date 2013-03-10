@@ -12,20 +12,25 @@
     <div class="face">
     {{ gravatar(response.user, 48) }}
     </div>
-    <a style="font-size:12px" href="{{ response.user.get_absolute_url() }}">{{ response.user.username|escape }}</a>
-    <a style="text-decoration:none;" href="{{ response.response_url }}">
-         {{ response.response_type }}
-         ({{ timeago(response.timestamp) }}):<br/>
-         {% if inbox_section != 'flags' %}
-             {{ response.response_snippet }}
-         {% endif %}
-    </a>
-    {% if inbox_section == 'flags' %}
-         <a class="re_expand" href="{{ response.response_url }}">
-              <!--div class="re_snippet">{{ response.response_snippet|escape }}</div-->
-              <div class="re_content">{{ response.response_content }}</div>
-         </a>
-    {% endif %}
+    <div class="content">
+        <a 
+            style="font-size:12px"
+            href="{{ response.user.get_absolute_url() }}"
+        >{{ response.user.username|escape }}</a>
+        <a style="text-decoration:none;" href="{{ response.response_url }}">
+             {{ response.response_type }}
+             ({{ timeago(response.timestamp) }}):<br/>
+             {% if inbox_section != 'flags' %}
+                 {{ response.response_snippet }}
+             {% endif %}
+        </a>
+        {% if inbox_section == 'flags' %}
+             <a class="re_expand" href="{{ response.response_url }}">
+                  <!--div class="re_snippet">{{ response.response_snippet|escape }}</div-->
+                  <div class="re_content">{{ response.response_content }}</div>
+             </a>
+        {% endif %}
+    </div>
 </div>
 {%- endmacro -%}
 
@@ -502,11 +507,11 @@ for the purposes of the AJAX comment editor #}
            title="{{desc_tooltip}}"><span>{{label}}</span></a>
     {% endif %}
     <script type="text/javascript">{# need to pass on text translations to js #}
-        var sortButtonData = sortButtonData || {};
-        sortButtonData["{{key_name}}"] = {
-            label: "{{label}}",
-            asc_tooltip: "{{asc_tooltip}}",
-            desc_tooltip: "{{desc_tooltip}}"
+        askbot['data']['sortButtonData'] = askbot['data']['sortButtonData'] || {};
+        askbot['data']['sortButtonData']['{{key_name}}'] = {
+            label: '{{label}}',
+            asc_tooltip: '{{asc_tooltip}}',
+            desc_tooltip: '{{desc_tooltip}}'
         };
     </script>
 {%- endmacro %}
@@ -595,6 +600,14 @@ answer {% if answer.accepted() %}accepted-answer{% endif %} {% if answer.author_
   {%- include "widgets/user_long_score_and_badge_summary.html" -%}
 {%- endmacro -%}
 
+{%- macro country_flag(country_code, flag_label) -%}
+    <img 
+        class="flag"
+        src="{{ ('/images/flags/' ~ country_code|lower ~ '.gif')|media }}"
+        alt="{{ flag_label }}"
+    />
+{%- endmacro -%}
+
 {%- macro user_country_flag(user) -%}
     {% if user.country and user.show_country %}
         <img class="flag" 
@@ -635,7 +648,7 @@ answer {% if answer.accepted() %}accepted-answer{% endif %} {% if answer.author_
 {#todo: rename this to avatar #}
 {%- macro gravatar(user, size) -%}
 {% spaceless %}
-<a style="text-decoration:none"
+<a class="avatar-box"
     href="{{ user.get_absolute_url() }}"
 ><img class="gravatar" 
     width="{{size}}" height="{{size}}"
@@ -784,3 +797,13 @@ answer {% if answer.accepted() %}accepted-answer{% endif %} {% if answer.author_
         {{datetime_object.replace(microsecond=0)|add_tz_offset}}
     </abbr>
 {%- endmacro -%}
+
+{% macro one_shot_form_js(form=None, submit_button=None) %}
+    <script type="text/javascript">
+        (function() {
+            var form = new OneShotForm();
+            form.setSubmitButton($("{{submit_button}}"));
+            form.decorate($("{{form}}"));
+        })();
+    </script>
+{% endmacro %}

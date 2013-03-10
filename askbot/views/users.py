@@ -17,10 +17,12 @@ import urllib
 from django.db.models import Count
 from django.conf import settings as django_settings
 from django.contrib.auth.decorators import login_required
+from django.core import exceptions as django_exceptions
 from django.core.paginator import Paginator, EmptyPage, InvalidPage
 from django.contrib.contenttypes.models import ContentType
 from django.core.urlresolvers import reverse
 from django.shortcuts import get_object_or_404
+from django.shortcuts import render
 from django.http import HttpResponse, HttpResponseForbidden
 from django.http import HttpResponseRedirect, Http404
 from django.utils.translation import ugettext as _
@@ -40,7 +42,6 @@ from askbot import models
 from askbot import exceptions
 from askbot.models.badges import award_badges_signal
 from askbot.models.tag import format_personal_group_name
-from askbot.skins.loaders import render_into_skin
 from askbot.search.state_manager import SearchState
 from askbot.utils import url_utils
 from askbot.utils.loading import load_module
@@ -61,7 +62,6 @@ def owner_or_moderator_required(f):
 
 def show_users(request, by_group=False, group_id=None, group_slug=None):
     """Users view, including listing of users by group"""
-
     if askbot_settings.GROUPS_ENABLED and not by_group:
         default_group = models.Group.objects.get_global_group()
         group_slug = slugify(default_group.name)
@@ -129,7 +129,7 @@ def show_users(request, by_group=False, group_id=None, group_slug=None):
     except ValueError:
         page = 1
 
-    search_query = request.REQUEST.get('query',  "")
+    search_query = request.GET.get('query',  "")
     if search_query == "":
         if sortby == "newest":
             order_by_parameter = '-date_joined'
@@ -200,7 +200,7 @@ def show_users(request, by_group=False, group_id=None, group_slug=None):
         'group_openness_choices': group_openness_choices
     }
 
-    return render_into_skin('users.html', data, request)
+    return render(request, 'users.html', data)
 
 @csrf.csrf_protect
 def user_moderate(request, subject, context):
@@ -294,7 +294,7 @@ def user_moderate(request, subject, context):
         'user_status_changed': user_status_changed
     }
     context.update(data)
-    return render_into_skin('user_profile/user_moderate.html', context, request)
+    return render(request, 'user_profile/user_moderate.html', context)
 
 #non-view function
 def set_new_email(user, new_email, nomessage=False):
@@ -317,9 +317,9 @@ def edit_user(request, id):
     if request.method == "POST":
         form = forms.EditUserForm(user, request.POST)
         if form.is_valid():
-            new_email = sanitize_html(form.cleaned_data['email'])
-
-            set_new_email(user, new_email)
+            if 'email' in form.cleaned_data and askbot_settings.EDITABLE_EMAIL:
+                new_email = sanitize_html(form.cleaned_data['email'])
+                set_new_email(user, new_email)
 
             if askbot_settings.EDITABLE_SCREEN_NAME:
                 new_username = sanitize_html(form.cleaned_data['username'])
@@ -356,7 +356,7 @@ def edit_user(request, id):
         'support_custom_avatars': ('avatar' in django_settings.INSTALLED_APPS),
         'view_user': user,
     }
-    return render_into_skin('user_profile/user_edit.html', data, request)
+    return render(request, 'user_profile/user_edit.html', data)
 
 def user_stats(request, user, context):
     question_filter = {}
@@ -528,7 +528,7 @@ def user_stats(request, user, context):
     }
     context.update(data)
 
-    return render_into_skin('user_profile/user_stats.html', context, request)
+    return render(request, 'user_profile/user_stats.html', context)
 
 def user_recent(request, user, context):
 
@@ -561,24 +561,44 @@ def user_recent(request, user, context):
             self.content_object = content_object
             self.badge = badge
 
-    activities = []
-
     # TODO: Don't process all activities here for the user, only a subset ([:const.USER_VIEW_DATA_SIZE])
-    for activity in models.Activity.objects.filter(user=user):
+    activity_types = (
+        const.TYPE_ACTIVITY_ASK_QUESTION,
+        const.TYPE_ACTIVITY_ANSWER,
+        const.TYPE_ACTIVITY_COMMENT_QUESTION,
+        const.TYPE_ACTIVITY_COMMENT_ANSWER,
+        const.TYPE_ACTIVITY_UPDATE_QUESTION,
+        const.TYPE_ACTIVITY_UPDATE_ANSWER,
+        const.TYPE_ACTIVITY_MARK_ANSWER,
+        const.TYPE_ACTIVITY_PRIZE
+    )
+
+    #source of information about activities
+    activity_objects = models.Activity.objects.filter(
+                                        user=user,
+                                        activity_type__in=activity_types
+                                    )[:const.USER_VIEW_DATA_SIZE]
+
+    #a list of digest objects, suitable for display
+    #the number of activities to show is not guaranteed to be
+    #const.USER_VIEW_DATA_TYPE, because we don't show activity
+    #for deleted content
+    activities = []
+    for activity in activity_objects:
 
         # TODO: multi-if means that we have here a construct for which a design pattern should be used
 
         # ask questions
         if activity.activity_type == const.TYPE_ACTIVITY_ASK_QUESTION:
-            q = activity.content_object
-            if q.deleted:
+            question = activity.content_object
+            if not question.deleted:
                 activities.append(Event(
                     time=activity.active_at,
                     type=activity.activity_type,
-                    title=q.thread.title,
+                    title=question.thread.title,
                     summary='', #q.summary,  # TODO: was set to '' before, but that was probably wrong
                     answer_id=0,
-                    question_id=q.id
+                    question_id=question.id
                 ))
 
         elif activity.activity_type == const.TYPE_ACTIVITY_ANSWER:
@@ -679,10 +699,10 @@ def user_recent(request, user, context):
         'tab_name' : 'recent',
         'tab_description' : _('recent user activity'),
         'page_title' : _('profile - recent activity'),
-        'activities' : activities[:const.USER_VIEW_DATA_SIZE]
+        'activities' : activities
     }
     context.update(data)
-    return render_into_skin('user_profile/user_recent.html', context, request)
+    return render(request, 'user_profile/user_recent.html', context)
 
 #not a view - no direct url route here, called by `user_responses`
 @csrf.csrf_protect
@@ -714,7 +734,7 @@ def show_group_join_requests(request, user, context):
         'join_requests': join_requests
     }
     context.update(data)
-    return render_into_skin('user_inbox/group_join_requests.html', context, request)
+    return render(request, 'user_inbox/group_join_requests.html', context)
 
 
 @owner_or_moderator_required
@@ -755,12 +775,12 @@ def user_responses(request, user, context):
     elif section == 'messages':
         if request.user != user:
             raise Http404
-        #here we take shortcut, because we don't care about
-        #all the extra context loaded below
+
         from group_messaging.views import SendersList, ThreadsList
         context.update(SendersList().get_context(request))
         context.update(ThreadsList().get_context(request))
         data = {
+            'inbox_threads_count': context['threads_count'],#a hackfor the inbox count
             'active_tab':'users',
             'page_class': 'user-profile-page',
             'tab_name' : 'inbox',
@@ -769,9 +789,21 @@ def user_responses(request, user, context):
             'page_title' : _('profile - messages')
         }
         context.update(data)
-        return render_into_skin(
-            'user_inbox/messages.html', context, request
-        )
+        if 'thread_id' in request.GET:
+            from group_messaging.models import Message
+            from group_messaging.views import ThreadDetails
+            try:
+                thread_id = request.GET['thread_id']
+                context.update(ThreadDetails().get_context(request, thread_id))
+                context['group_messaging_template_name'] = \
+                    'group_messaging/home_thread_details.html'
+            except Message.DoesNotExist:
+                raise Http404
+        else:
+            context['group_messaging_template_name'] = 'group_messaging/home.html'
+            #here we take shortcut, because we don't care about
+            #all the extra context loaded below
+        return render(request, 'user_inbox/messages.html', context)
     else:
         raise Http404
 
@@ -839,7 +871,7 @@ def user_responses(request, user, context):
         'responses' : filtered_response_list,
     }
     context.update(data)
-    return render_into_skin('user_inbox/responses_and_flags.html', context, request)
+    return render(request, 'user_inbox/responses_and_flags.html', context)
 
 def user_network(request, user, context):
     if 'followit' not in django_settings.INSTALLED_APPS:
@@ -850,7 +882,7 @@ def user_network(request, user, context):
         'followers': user.get_followers(),
     }
     context.update(data)
-    return render_into_skin('user_profile/user_network.html', context, request)
+    return render(request, 'user_profile/user_network.html', context)
 
 @owner_or_moderator_required
 def user_votes(request, user, context):
@@ -880,7 +912,7 @@ def user_votes(request, user, context):
         'votes' : votes[:const.USER_VIEW_DATA_SIZE]
     }
     context.update(data)
-    return render_into_skin('user_profile/user_votes.html', context, request)
+    return render(request, 'user_profile/user_votes.html', context)
 
 
 def user_reputation(request, user, context):
@@ -903,7 +935,7 @@ def user_reputation(request, user, context):
         'reps': reps
     }
     context.update(data)
-    return render_into_skin('user_profile/user_reputation.html', context, request)
+    return render(request, 'user_profile/user_reputation.html', context)
 
 
 def user_favorites(request, user, context):
@@ -921,7 +953,28 @@ def user_favorites(request, user, context):
         'questions' : questions,
     }
     context.update(data)
-    return render_into_skin('user_profile/user_favorites.html', context, request)
+    return render(request, 'user_profile/user_favorites.html', context)
+
+
+@csrf.csrf_protect
+def user_select_languages(request, id=None, slug=None):
+    if request.method != 'POST':
+        raise django_exceptions.PermissionDenied
+
+    user = get_object_or_404(models.User, id=id)
+
+    if not(request.user.id == user.id or request.user.is_administrator()):
+        raise django_exceptions.PermissionDenied
+
+    languages = request.POST.getlist('languages')
+    user.languages = ' '.join(languages)
+    user.save()
+
+    redirect_url = reverse(
+        'user_subscriptions',
+        kwargs={'id': user.id, 'slug': slugify(user.username)}
+    )
+    return HttpResponseRedirect(redirect_url)
 
 
 @owner_or_moderator_required
@@ -963,6 +1016,7 @@ def user_email_subscriptions(request, user, context):
 
     data = {
         'active_tab': 'users',
+        'subscribed_tag_names': user.get_marked_tag_names('subscribed'),
         'page_class': 'user-profile-page',
         'tab_name': 'email_subscriptions',
         'tab_description': _('email subscription settings'),
@@ -970,12 +1024,13 @@ def user_email_subscriptions(request, user, context):
         'email_feeds_form': email_feeds_form,
         'tag_filter_selection_form': tag_filter_form,
         'action_status': action_status,
+        'user_languages': user.languages.split()
     }
     context.update(data)
-    return render_into_skin(
+    return render(
+        request,
         'user_profile/user_email_subscriptions.html',
-        context,
-        request
+        context
     )
 
 @csrf.csrf_protect
@@ -994,7 +1049,7 @@ def user_custom_tab(request, user, context):
         'tab_name': tab_settings['SLUG'],
         'page_title': page_title
     })
-    return render_into_skin('user_profile/custom_tab.html', context, request)
+    return render(request, 'user_profile/custom_tab.html', context)
 
 USER_VIEW_CALL_TABLE = {
     'stats': user_stats,
@@ -1118,4 +1173,4 @@ def groups(request, id = None, slug = None):
         'tab_name': scope,
         'page_class': 'groups-page'
     }
-    return render_into_skin('groups.html', data, request)
+    return render(request, 'groups.html', data)

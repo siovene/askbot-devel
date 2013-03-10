@@ -14,9 +14,9 @@ def fix_revisionless_posts(post_class):
         print 'have %d corrupted posts' % len(posts)
         for post in posts:
             post.add_revision(
-                        author = post.author,
-                        text = post.text,
-                        comment = const.POST_STATUS['default_version'],
+                        author=post.author,
+                        text=post.text,
+                        comment=unicode(const.POST_STATUS['default_version']),
                         revised_at = post.added_at
                     )
             post.last_edited_at = None

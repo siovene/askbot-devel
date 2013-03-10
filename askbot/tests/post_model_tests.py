@@ -3,13 +3,13 @@ import datetime
 from operator import attrgetter
 import time
 from askbot.search.state_manager import SearchState
-from askbot.skins.loaders import get_template
 from django.contrib.auth.models import User
 from django.core import cache, urlresolvers
 from django.core.cache.backends.dummy import DummyCache
 from django.core.cache.backends.locmem import LocMemCache
 
 from django.core.exceptions import ValidationError
+from django.template.loader import get_template
 from askbot.tests.utils import AskbotTestCase
 from askbot.models import Post
 from askbot.models import PostRevision
@@ -126,17 +126,21 @@ class PostModelTests(AskbotTestCase):
         th.title = 'lala-x-lala'
         p = Post(id=3, post_type='question')
         p._thread_cache = th  # cannot assign non-Thread instance directly
-        self.assertEqual('/question/3/lala-x-lala/', p.get_absolute_url(thread=th))
+        expected_url = urlresolvers.reverse('question', kwargs={'id': 3}) \
+                                                                + th.title + '/'
+        self.assertEqual(expected_url, p.get_absolute_url(thread=th))
         self.assertTrue(p._thread_cache is th)
-        self.assertEqual('/question/3/lala-x-lala/', p.get_absolute_url(thread=th))
+        self.assertEqual(expected_url, p.get_absolute_url(thread=th))
 
     def test_cached_get_absolute_url_2(self):
         p = Post(id=3, post_type='question')
         th = lambda:1
         th.title = 'lala-x-lala'
-        self.assertEqual('/question/3/lala-x-lala/', p.get_absolute_url(thread=th))
+        expected_url = urlresolvers.reverse('question', kwargs={'id': 3}) \
+                                                                + th.title + '/'
+        self.assertEqual(expected_url, p.get_absolute_url(thread=th))
         self.assertTrue(p._thread_cache is th)
-        self.assertEqual('/question/3/lala-x-lala/', p.get_absolute_url(thread=th))
+        self.assertEqual(expected_url, p.get_absolute_url(thread=th))
 
     def test_get_moderators_with_groups(self):
         groups_enabled_backup = askbot_settings.GROUPS_ENABLED

@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
+from django.conf import settings as django_settings
 from django.conf.urls.defaults import patterns, url
-from django.utils.translation import ugettext as _
+
+if django_settings.ASKBOT_TRANSLATE_URL == True:
+    from django.utils.translation import ugettext as _
+else:
+    _ = lambda val: val
 
 urlpatterns = patterns('askbot.deps.django_authopenid.views',
     # yadis rdf
@@ -18,6 +23,11 @@ urlpatterns = patterns('askbot.deps.django_authopenid.views',
         r'^%s%s$' % (_('signin/'), _('complete-oauth/')),
         'complete_oauth_signin',
         name='user_complete_oauth_signin'
+    ),
+    url(
+        r'^signin/complete-oauth2/',
+        'complete_oauth2_signin',
+        name='user_complete_oauth2_signin'
     ),
     url(r'^%s$' % _('register/'), 'register', name='user_register'),
     url(

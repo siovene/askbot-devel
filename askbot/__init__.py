@@ -7,13 +7,13 @@ basic actions on behalf of the forum application
 import os
 import platform
 
-VERSION = (0, 7, 43)
+VERSION = (0, 7, 48)
 
 #keys are module names used by python imports,
 #values - the package qualifier to use for pip
 REQUIREMENTS = {
     'akismet': 'akismet',
-    'django': 'django==1.3.1',
+    'django': 'django>=1.3.1,<1.5',
     'jinja2': 'Jinja2',
     'coffin': 'Coffin>=0.3',
     'south': 'South>=0.7.1',
@@ -23,10 +23,11 @@ REQUIREMENTS = {
     'keyedcache': 'django-keyedcache',
     'threaded_multihost': 'django-threaded-multihost',
     'robots': 'django-robots',
+    'sanction': 'sanction',
     'unidecode': 'unidecode',
     'django_countries': 'django-countries==1.0.5',
-    'djcelery': 'django-celery==2.2.7',
-    'djkombu': 'django-kombu==0.9.2',
+    'djcelery': 'django-celery==3.0.11',
+    'djkombu': 'django-kombu==0.9.4',
     'followit': 'django-followit',
     'recaptcha_works': 'django-recaptcha-works',
     'openid': 'python-openid',

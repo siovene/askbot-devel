@@ -13,10 +13,11 @@ import sys
 #expressions are stripped of month and day names
 #to keep them simpler and make the additions of language variants
 #easier.
-GMAIL_QUOTE_RE = r'\n\nOn [^\n]* wrote:\Z'
-YAHOO_QUOTE_RE = r'\n\n\n\n_+\n From: [^\n]+\nTo: [^\n]+\nSent: [^\n]+\nSubject: [^\n]+\Z'
+GMAIL_QUOTE_RE = r'\nOn [^\n]* wrote:\Z'
+GMAIL_SECOND_QUOTE_RE = r'\n\d{4}/\d{1,2}/\d{1,2} [^\n]*\Z'
+YAHOO_QUOTE_RE = r'\n_+\n\s*From: [^\n]+\nTo: [^\n]+\nSent: [^\n]+\nSubject: [^\n]+\Z'
 KMAIL_QUOTE_RE = r'\AOn [^\n]+ you wrote:\s*\n\n'
-OUTLOOK_RTF_QUOTE_RE = r'\n\nSubject: [^\n]+\nFrom: [^\n]+\nTo: [^\n]+\nDate: [^\n]+\Z'
+OUTLOOK_RTF_QUOTE_RE = r'\nSubject: [^\n]+\nFrom: [^\n]+\nTo: [^\n]+\nDate: [^\n]+\Z'
 OUTLOOK_TEXT_QUOTE_RE = r'\n_+\Z'
 
 def compile_quote_regexes():
@@ -55,8 +56,10 @@ def strip_email_client_quote_separator(text):
         if regex.search(text):
             return regex.sub('', text)
     #did not find a quote separator!!! log it
-    sys.stderr.write('no quote separator: %s\n' % text)
-    return text
+    log_message = u'\nno matching quote separator: %s\n' % text
+    sys.stderr.write(log_message.encode('utf-8'))
+    text_lines = text.splitlines(False)
+    return ''.join(text_lines[:-3])#strip 3 lines as a guess
 
 def extract_reply_contents(text, reply_separator=None):
     """If reply_separator is given,

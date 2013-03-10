@@ -6,6 +6,7 @@ import sys
 from django.conf import settings
 from django.core.urlresolvers import reverse
 from django.utils import simplejson
+from django.utils.translation import get_language
 
 import askbot
 from askbot import api
@@ -29,6 +30,8 @@ def application_settings(request):
         return {}
     my_settings = askbot_settings.as_dict()
     my_settings['LANGUAGE_CODE'] = getattr(request, 'LANGUAGE_CODE', settings.LANGUAGE_CODE)
+    my_settings['MULTILINGUAL'] = getattr(settings, 'ASKBOT_MULTILINGUAL', False)
+    my_settings['LANGUAGES_DICT'] = dict(getattr(settings, 'LANGUAGES', []))
     my_settings['ALLOWED_UPLOAD_FILE_TYPES'] = \
             settings.ASKBOT_ALLOWED_UPLOAD_FILE_TYPES
     my_settings['ASKBOT_URL'] = settings.ASKBOT_URL
@@ -43,6 +46,7 @@ def application_settings(request):
                                         'ASKBOT_USE_LOCAL_FONTS',
                                         False
                                     )
+    my_settings['CSRF_COOKIE_NAME'] = settings.CSRF_COOKIE_NAME
     my_settings['DEBUG'] = settings.DEBUG
     my_settings['USING_RUNSERVER'] = 'runserver' in sys.argv
     my_settings['ASKBOT_VERSION'] = askbot.get_version()
@@ -52,6 +56,7 @@ def application_settings(request):
     my_settings['USE_ASKBOT_LOGIN_SYSTEM'] = 'askbot.deps.django_authopenid' \
         in settings.INSTALLED_APPS
     context = {
+        'current_language_code': get_language(),
         'settings': my_settings,
         'skin': get_skin(request),
         'moderation_items': api.get_info_on_moderation_items(request.user),

@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import smtplib
+import sys
 from askbot import exceptions
 from askbot import const
 from askbot.conf import settings as askbot_settings
@@ -17,7 +18,8 @@ from django.core import mail
 from django.conf import settings as django_settings
 from django.core.exceptions import PermissionDenied
 from django.forms import ValidationError
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import ugettext as _
+from django.utils.translation import ugettext_lazy
 from django.utils.translation import string_concat
 from django.template import Context
 from django.utils.html import strip_tags
@@ -90,9 +92,10 @@ def clean_html_email(email_body):
     """
     soup = BeautifulSoup(email_body)
     body_element = soup.find('body')
+    filter_func = lambda s: bool(s.strip())
     phrases = map(
         lambda s: s.strip(),
-        filter(bool, body_element.get_text().split('\n'))
+        filter(filter_func, body_element.get_text().split('\n'))
     )
     return '\n\n'.join(phrases)
 
@@ -132,10 +135,11 @@ def send_mail(
                     )
         msg.attach_alternative(body_text, "text/html")
         msg.send()
+        logging.debug('sent update to %s' % ','.join(recipient_list))
         if related_object is not None:
             assert(activity_type is not None)
     except Exception, error:
-        logging.critical(unicode(error))
+        sys.stderr.write('\n' + unicode(error).encode('utf-8') + '\n')
         if raise_on_failure == True:
             raise exceptions.EmailNotSent(unicode(error))
 
@@ -172,26 +176,26 @@ def mail_moderators(
         msg.content_subtype = 'html'
         msg.send()
     except smtplib.SMTPException, error:
-        logging.critical(unicode(error))
+        sys.stderr.write('\n' + error.encode('utf-8') + '\n')
         if raise_on_failure == True:
             raise exceptions.EmailNotSent(unicode(error))
 
-INSTRUCTIONS_PREAMBLE = _('<p>To ask by email, please:</p>')
-QUESTION_TITLE_INSTRUCTION = _(
+INSTRUCTIONS_PREAMBLE = ugettext_lazy('<p>To ask by email, please:</p>')
+QUESTION_TITLE_INSTRUCTION = ugettext_lazy(
     '<li>Type title in the subject line</li>'
 )
-QUESTION_DETAILS_INSTRUCTION = _(
+QUESTION_DETAILS_INSTRUCTION = ugettext_lazy(
     '<li>Type details of your question into the email body</li>'
 )
-OPTIONAL_TAGS_INSTRUCTION = _(
+OPTIONAL_TAGS_INSTRUCTION = ugettext_lazy(
 """<li>The beginning of the subject line can contain tags,
 <em>enclosed in the square brackets</em> like so: [Tag1; Tag2]</li>"""
 )
-REQUIRED_TAGS_INSTRUCTION = _(
+REQUIRED_TAGS_INSTRUCTION = ugettext_lazy(
 """<li>In the beginning of the subject add at least one tag
 <em>enclosed in the brackets</em> like so: [Tag1; Tag2].</li>"""
 )
-TAGS_INSTRUCTION_FOOTNOTE = _(
+TAGS_INSTRUCTION_FOOTNOTE = ugettext_lazy(
 """<p>Note that a tag may consist of more than one word, to separate
 the tags, use a semicolon or a comma, for example, [One tag; Other tag]</p>"""
 )
@@ -310,7 +314,7 @@ def extract_user_signature(text, reply_code):
 
         return '\n'.join(tail)
     else:
-        return ''
+        return None
 
 
 def process_parts(parts, reply_code=None):

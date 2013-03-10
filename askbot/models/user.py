@@ -10,6 +10,7 @@ from django.contrib.auth.models import Group as AuthGroup
 from django.core import exceptions
 from django.forms import EmailField, URLField
 from django.utils.translation import ugettext as _
+from django.utils.translation import ugettext_lazy
 from django.utils.html import strip_tags
 from askbot import const
 from askbot.conf import settings as askbot_settings
@@ -17,6 +18,7 @@ from askbot.utils import functions
 from askbot.models.base import BaseQuerySetManager
 from askbot.models.tag import Tag
 from askbot.models.tag import clean_group_name#todo - delete this
+from askbot.models.tag import get_tags_by_names
 from askbot.forms import DomainNameField
 from askbot.utils.forms import email_is_allowed
 
@@ -55,7 +57,7 @@ class ActivityManager(models.Manager):
                 mentioned_at = None,
                 mentioned_in = None,
                 reported = None
-            ): 
+            ):
 
         #todo: automate this using python inspect module
         kwargs = dict()
@@ -94,7 +96,7 @@ class ActivityManager(models.Manager):
         return mention_activity
 
     def get_mentions(
-                self, 
+                self,
                 mentioned_by = None,
                 mentioned_whom = None,
                 mentioned_at = None,
@@ -279,17 +281,17 @@ class EmailFeedSetting(models.Model):
         'm_and_c': 'i'
     }
     FEED_TYPE_CHOICES = (
-                    ('q_all',_('Entire forum')),
-                    ('q_ask',_('Questions that I asked')),
-                    ('q_ans',_('Questions that I answered')),
-                    ('q_sel',_('Individually selected questions')),
-                    ('m_and_c',_('Mentions and comment responses')),
+                    ('q_all', ugettext_lazy('Entire forum')),
+                    ('q_ask', ugettext_lazy('Questions that I asked')),
+                    ('q_ans', ugettext_lazy('Questions that I answered')),
+                    ('q_sel', ugettext_lazy('Individually selected questions')),
+                    ('m_and_c', ugettext_lazy('Mentions and comment responses')),
                     )
     UPDATE_FREQUENCY = (
-                    ('i',_('Instantly')),
-                    ('d',_('Daily')),
-                    ('w',_('Weekly')),
-                    ('n',_('No email')),
+                    ('i', ugettext_lazy('Instantly')),
+                    ('d', ugettext_lazy('Daily')),
+                    ('w', ugettext_lazy('Weekly')),
+                    ('n', ugettext_lazy('No email')),
                    )
 
 
@@ -316,8 +318,8 @@ class EmailFeedSetting(models.Model):
         else:
             reported_at = '%s' % self.reported_at.strftime('%d/%m/%y %H:%M')
         return 'Email feed for %s type=%s, frequency=%s, reported_at=%s' % (
-                                                     self.subscriber, 
-                                                     self.feed_type, 
+                                                     self.subscriber,
+                                                     self.feed_type,
                                                      self.frequency,
                                                      reported_at
                                                  )
@@ -424,7 +426,7 @@ class GroupQuerySet(models.query.QuerySet):
 
 class GroupManager(BaseQuerySetManager):
     """model manager for askbot groups"""
-    
+
     def get_query_set(self):
         return GroupQuerySet(self.model)
 
@@ -591,3 +593,71 @@ class Group(AuthGroup):
     def save(self, *args, **kwargs):
         self.clean()
         super(Group, self).save(*args, **kwargs)
+
+class BulkTagSubscriptionManager(BaseQuerySetManager):
+
+    def create(
+                self, tag_names=None,
+                user_list=None, group_list=None,
+                tag_author=None,  **kwargs
+            ):
+
+        tag_names = tag_names or []
+        user_list = user_list or []
+        group_list = group_list or []
+
+        new_object = super(BulkTagSubscriptionManager, self).create(**kwargs)
+        tag_name_list = []
+
+        if tag_names:
+            tags, new_tag_names = get_tags_by_names(tag_names)
+            if new_tag_names:
+                assert(tag_author)
+
+            tags_id_list= [tag.id for tag in tags]
+            tag_name_list = [tag.name for tag in tags]
+
+            new_tags = Tag.objects.create_in_bulk(
+                                        tag_names=new_tag_names,
+                                        user=tag_author
+                                    )
+
+            tags_id_list.extend([tag.id for tag in new_tags])
+            tag_name_list.extend([tag.name for tag in new_tags])
+
+            new_object.tags.add(*tags_id_list)
+
+        if user_list:
+            user_ids = []
+            for user in user_list:
+                user_ids.append(user.id)
+                user.mark_tags(tagnames=tag_name_list,
+                               reason='subscribed',
+                               action='add')
+
+            new_object.users.add(*user_ids)
+
+        if group_list:
+            group_ids = []
+            for group in group_list:
+                #TODO: do the group marked tag thing here
+                group_ids.append(group.id)
+            new_object.groups.add(*group_ids)
+
+        return new_object
+
+
+class BulkTagSubscription(models.Model):
+    date_added = models.DateField(auto_now_add=True)
+    tags = models.ManyToManyField(Tag)
+    users = models.ManyToManyField(User)
+    groups = models.ManyToManyField(Group)
+
+    objects = BulkTagSubscriptionManager()
+
+    def tag_list(self):
+        return [tag.name for tag in self.tags.all()]
+
+    class Meta:
+        app_label = 'askbot'
+        ordering = ['-date_added']

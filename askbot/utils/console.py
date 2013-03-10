@@ -24,13 +24,40 @@ def choice_dialog(prompt_phrase, choices = None, invalid_phrase = None):
     assert(hasattr(choices, '__iter__'))
     assert(not isinstance(choices, basestring))
     while 1:
-        response = raw_input('\n%s (type %s): ' % (prompt_phrase, '/'.join(choices)))
+        response = raw_input(
+            '\n%s (type %s)\n> ' % (prompt_phrase, '/'.join(choices))
+        )
         if response in choices:
             return response
         elif invalid_phrase != None:
             opt_string = ','.join(choices)
             print invalid_phrase % {'opt_string': opt_string}
         time.sleep(1)
+
+
+def simple_dialog(prompt_phrase, required=False):
+    """asks user to enter a string, if `required` is True,
+    will repeat question until non-empty input is given
+    """
+    while 1:
+
+        if required:
+            prompt_phrase += ' (required)'
+
+        response = raw_input(prompt_phrase + '\n> ').strip()
+        
+        if response or required is False:
+            return response
+
+        time.sleep(1)
+
+
+def get_yes_or_no(prompt_phrase):
+    while True:
+        response = raw_input(prompt_phrase + ' (yes/no)\n> ').strip()
+        if response in ('yes', 'no'):
+            return response
+            
 
 def open_new_file(prompt_phrase, extension = '', hint = None):
     """will ask for a file name to be typed
@@ -91,7 +118,8 @@ class ProgressBar(object):
         self.iterable = iterable
         self.length = length
         self.counter = float(0)
-        self.barlen = 60
+        self.max_barlen = 60
+        self.curr_barlen = 0
         self.progress = ''
         if message and length > 0:
             print message
@@ -103,17 +131,33 @@ class ProgressBar(object):
     def print_progress_bar(self):
         """prints the progress bar"""
 
+        self.backspace_progress_percent()
+
+        tics_to_write = 0
+        if self.length < self.max_barlen:
+            tics_to_write = self.max_barlen/self.length
+        elif int(self.counter) % (self.length/self.max_barlen) == 0:
+            tics_to_write = 1
+
+        if self.curr_barlen + tics_to_write <= self.max_barlen:
+            sys.stdout.write('-' * tics_to_write)
+            self.curr_barlen += tics_to_write
+
+        self.print_progress_percent()
+
+    def backspace_progress_percent(self):
         sys.stdout.write('\b'*len(self.progress))
 
-        if self.length < self.barlen:
-            sys.stdout.write('-'*(self.barlen/self.length))
-        elif int(self.counter) % (self.length / self.barlen) == 0:
-            sys.stdout.write('-')
-
+    def print_progress_percent(self):
+        """prints percent of achieved progress"""
         self.progress = ' %.2f%%' % (100 * (self.counter/self.length))
         sys.stdout.write(self.progress)
         sys.stdout.flush()
 
+    def finish_progress_bar(self):
+        """brint the last bars, to make all bars equal length"""
+        self.backspace_progress_percent()
+        sys.stdout.write('-' * (self.max_barlen - self.curr_barlen))
 
     def next(self):
 
@@ -121,7 +165,8 @@ class ProgressBar(object):
             result = self.iterable.next()
         except StopIteration:
             if self.length > 0:
-                self.print_progress_bar()
+                self.finish_progress_bar()
+                self.print_progress_percent()
                 sys.stdout.write('\n')
             raise
 

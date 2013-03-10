@@ -13,6 +13,7 @@ import collections
 import datetime
 import hashlib
 import logging
+import re
 import urllib
 import uuid
 from celery import states
@@ -20,6 +21,7 @@ from celery.task import task
 from django.core.urlresolvers import reverse, NoReverseMatch
 from django.db.models import signals as django_signals
 from django.template import Context
+from django.template.loader import get_template
 from django.utils.translation import ugettext as _
 from django.utils.translation import ungettext
 from django.utils.safestring import mark_safe
@@ -45,6 +47,7 @@ from askbot.models.tag import format_personal_group_name
 from askbot.models.user import EmailFeedSetting, ActivityAuditStatus, Activity
 from askbot.models.user import GroupMembership
 from askbot.models.user import Group
+from askbot.models.user import BulkTagSubscription
 from askbot.models.post import Post, PostRevision
 from askbot.models.post import PostFlagReason, AnonymousAnswer
 from askbot.models.post import PostToGroup
@@ -56,12 +59,21 @@ from askbot.models.repute import Award, Repute, Vote
 from askbot.models.widgets import AskWidget, QuestionWidget
 from askbot import auth
 from askbot.utils.decorators import auto_now_timestamp
+from askbot.utils.markup import URL_RE
 from askbot.utils.slug import slugify
 from askbot.utils.html import replace_links_with_text
 from askbot.utils.html import sanitize_html
 from askbot.utils.diff import textDiff as htmldiff
 from askbot.utils.url_utils import strip_path
 from askbot import mail
+
+from django import VERSION
+
+#stores the 1.X version not the security release numbers
+DJANGO_VERSION = VERSION[:2]
+
+if DJANGO_VERSION > (1, 3):
+    from askbot.models.message import Message
 
 def get_model(model_name):
     """a shortcut for getting model for an askbot app"""
@@ -101,7 +113,7 @@ def get_users_by_text_query(search_query, users_query_set = None):
             users_query_set = User.objects.all()
         if 'postgresql_psycopg2' in askbot.get_database_engine_name():
             from askbot.search import postgresql
-            return postgresql.run_full_text_search(users_query_set, search_query)
+            return postgresql.run_user_search(users_query_set, search_query)
         else:
             return users_query_set.filter(
                 models.Q(username__icontains=search_query) |
@@ -113,6 +125,45 @@ def get_users_by_text_query(search_query, users_query_set = None):
         #        models.Q(username__search = search_query) |
         #        models.Q(about__search = search_query)
         #    )
+
+class RelatedObjectSimulator(object):
+    '''Objects that simulates the "messages_set" related field
+    somehow django does not creates it automatically in django1.4.1'''
+
+    def __init__(self, user, model_class):
+        self.user = user
+        self.model_class = model_class
+
+    def all(self):
+        return self.model_class.objects.all()
+
+    def count(self, **kwargs):
+        kwargs['user'] = self.user
+        return self.model_class.objects.filter(**kwargs).count()
+
+    def create(self, **kwargs):
+        return self.model_class.objects.create(user=self.user, **kwargs)
+
+    def filter(self, *args, **kwargs):
+        return self.model_class.objects.filter(*args, **kwargs)
+
+
+#django 1.4.1 and above
+@property
+def user_message_set(self):
+    return RelatedObjectSimulator(self, Message)
+
+#django 1.4.1 and above
+def user_get_and_delete_messages(self):
+    messages = []
+    for message in Message.objects.filter(user=self):
+        messages.append(message.message)
+        message.delete()
+    return messages
+
+if DJANGO_VERSION > (1, 3):
+    User.add_to_class('message_set', user_message_set)
+    User.add_to_class('get_and_delete_messages', user_get_and_delete_messages)
 
 User.add_to_class(
             'status',
@@ -169,14 +220,14 @@ User.add_to_class('show_marked_tags', models.BooleanField(default = True))
 User.add_to_class(
     'email_tag_filter_strategy',
     models.SmallIntegerField(
-        choices=const.TAG_DISPLAY_FILTER_STRATEGY_CHOICES,
+        choices=const.TAG_EMAIL_FILTER_FULL_STRATEGY_CHOICES,
         default=const.EXCLUDE_IGNORED
     )
 )
 User.add_to_class(
     'display_tag_filter_strategy',
     models.SmallIntegerField(
-        choices=const.TAG_EMAIL_FILTER_STRATEGY_CHOICES,
+        choices=const.TAG_DISPLAY_FILTER_STRATEGY_CHOICES,
         default=const.INCLUDE_ALL
     )
 )
@@ -184,8 +235,13 @@ User.add_to_class(
 User.add_to_class('new_response_count', models.IntegerField(default=0))
 User.add_to_class('seen_response_count', models.IntegerField(default=0))
 User.add_to_class('consecutive_days_visit_count', models.IntegerField(default = 0))
+#list of languages for which user should receive email alerts
+User.add_to_class(
+    'languages',
+    models.CharField(max_length=128, default=django_settings.LANGUAGE_CODE)
+)
 
-GRAVATAR_TEMPLATE = "http://www.gravatar.com/avatar/%(gravatar)s?" + \
+GRAVATAR_TEMPLATE = "//www.gravatar.com/avatar/%(gravatar)s?" + \
     "s=%(size)d&amp;d=%(type)s&amp;r=PG"
 
 def user_get_gravatar_url(self, size):
@@ -556,10 +612,11 @@ def user_assert_can_unaccept_best_answer(self, answer = None):
             return
 
     else:
+        question_owner = answer.thread._question_post().get_owner()
         error_message = _(
             'Sorry, only moderators or original author of the question '
             ' - %(username)s - can accept or unaccept the best answer'
-            ) % {'username': answer.get_owner().username}
+        ) % {'username': question_owner.username}
 
     raise django_exceptions.PermissionDenied(error_message)
 
@@ -632,6 +689,19 @@ def user_assert_can_upload_file(request_user):
         min_rep_setting = askbot_settings.MIN_REP_TO_UPLOAD_FILES,
         low_rep_error_message = low_rep_error_message
     )
+
+
+def user_assert_can_post_text(self, text):
+    """Raises exceptions.PermissionDenied, if user does not have
+    privilege to post given text, depending on the contents
+    """
+    if re.search(URL_RE, text):
+        min_rep = askbot_settings.MIN_REP_TO_SUGGEST_LINK
+        if self.is_authenticated() and self.reputation < min_rep:
+            message = _(
+                'Could not post, because your karma is insufficient to publish links'
+            )
+            raise django_exceptions.PermissionDenied(message)
 
 
 def user_assert_can_post_question(self):
@@ -1563,7 +1633,8 @@ def user_post_question(
                     group_id = None,
                     timestamp = None,
                     by_email = False,
-                    email_address = None
+                    email_address = None,
+                    language = None
                 ):
     """makes an assertion whether user can post the question
     then posts it and returns the question object"""
@@ -1580,20 +1651,21 @@ def user_post_question(
     if timestamp is None:
         timestamp = datetime.datetime.now()
 
-    #todo: split this into "create thread" + "add queston", if text exists
+    #todo: split this into "create thread" + "add question", if text exists
     #or maybe just add a blank question post anyway
     thread = Thread.objects.create_new(
-                                    author = self,
-                                    title = title,
-                                    text = body_text,
-                                    tagnames = tags,
-                                    added_at = timestamp,
-                                    wiki = wiki,
-                                    is_anonymous = is_anonymous,
-                                    is_private = is_private,
-                                    group_id = group_id,
-                                    by_email = by_email,
-                                    email_address = email_address
+                                    author=self,
+                                    title=title,
+                                    text=body_text,
+                                    tagnames=tags,
+                                    added_at=timestamp,
+                                    wiki=wiki,
+                                    is_anonymous=is_anonymous,
+                                    is_private=is_private,
+                                    group_id=group_id,
+                                    by_email=by_email,
+                                    email_address=email_address,
+                                    language=language
                                 )
     question = thread._question_post()
     if question.author != self:
@@ -1770,7 +1842,7 @@ def user_create_post_reject_reason(
         author = self,
         revised_at = timestamp,
         text = details,
-        comment = const.POST_STATUS['default_version']
+        comment = unicode(const.POST_STATUS['default_version'])
     )
 
     reason.details = details
@@ -2232,7 +2304,7 @@ def delete_messages(self):
     self.message_set.all().delete()
 
 #todo: find where this is used and replace with get_absolute_url
-def get_profile_url(self):
+def user_get_profile_url(self):
     """Returns the URL for this User's profile."""
     return reverse(
                 'user_profile',
@@ -2804,7 +2876,7 @@ User.add_to_class(
     user_get_flag_count_posted_today
 )
 User.add_to_class('get_flags_for_post', user_get_flags_for_post)
-User.add_to_class('get_profile_url', get_profile_url)
+User.add_to_class('get_profile_url', user_get_profile_url)
 User.add_to_class('get_profile_link', get_profile_link)
 User.add_to_class('get_tag_filtered_questions', user_get_tag_filtered_questions)
 User.add_to_class('get_messages', get_messages)
@@ -2867,6 +2939,7 @@ User.add_to_class('assert_can_upload_file', user_assert_can_upload_file)
 User.add_to_class('assert_can_post_question', user_assert_can_post_question)
 User.add_to_class('assert_can_post_answer', user_assert_can_post_answer)
 User.add_to_class('assert_can_post_comment', user_assert_can_post_comment)
+User.add_to_class('assert_can_post_text', user_assert_can_post_text)
 User.add_to_class('assert_can_edit_post', user_assert_can_edit_post)
 User.add_to_class('assert_can_edit_deleted_post', user_assert_can_edit_deleted_post)
 User.add_to_class('assert_can_see_deleted_post', user_assert_can_see_deleted_post)
@@ -2987,8 +3060,9 @@ def format_instant_notification_email(
     else:
         raise ValueError('unrecognized post type')
 
-    post_url = strip_path(site_url) + post.get_absolute_url()
-    user_url = strip_path(site_url) + from_user.get_absolute_url()
+    base_url = strip_path(site_url)
+    post_url = base_url + post.get_absolute_url()
+    user_url = base_url + from_user.get_absolute_url()
     user_action = user_action % {
         'user': '<a href="%s">%s</a>' % (user_url, from_user.username),
         'post_link': '<a href="%s">%s</a>' % (post_url, _(post.post_type))
@@ -3385,9 +3459,8 @@ def send_respondable_email_validation_message(
                                 )
     data['email_code'] = reply_address.address
 
-    from askbot.skins.loaders import get_template
     template = get_template(template_name)
-    body_text = template.render(Context(data))
+    body_text = template.render(Context(data))#todo: set lang
 
     reply_to_address = 'welcome-%s@%s' % (
                             reply_address.address,
@@ -3483,6 +3556,20 @@ def add_missing_subscriptions(sender, instance, created, **kwargs):
     if created:
         instance.add_missing_askbot_subscriptions()
 
+def add_missing_tag_subscriptions(sender, instance, created, **kwargs):
+    '''``sender` is instance of `User``. When the user is created
+    it add the tag subscriptions to the user via BulkTagSubscription
+    and MarkedTags.
+    '''
+    if created:
+        if askbot_settings.SUBSCRIBED_TAG_SELECTOR_ENABLED and \
+                askbot_settings.GROUPS_ENABLED:
+            user_groups = instance.get_groups()
+            for subscription in BulkTagSubscription.objects.filter(groups__in = user_groups):
+                tag_list = subscription.tag_list()
+                instance.mark_tags(tagnames = tag_list,
+                                reason='subscribed', action='add')
+
 def post_anonymous_askbot_content(
                                 sender,
                                 request,
@@ -3529,13 +3616,13 @@ def moderate_group_joining(sender, instance=None, created=False, **kwargs):
                 content_object = group
             )
 
-
 #signal for User model save changes
 django_signals.pre_save.connect(make_admin_if_first_user, sender=User)
 django_signals.pre_save.connect(calculate_gravatar_hash, sender=User)
 django_signals.post_save.connect(add_missing_subscriptions, sender=User)
 django_signals.post_save.connect(add_user_to_global_group, sender=User)
 django_signals.post_save.connect(add_user_to_personal_group, sender=User)
+django_signals.post_save.connect(add_missing_tag_subscriptions, sender=User)
 django_signals.post_save.connect(record_award_event, sender=Award)
 django_signals.post_save.connect(notify_award_message, sender=Award)
 django_signals.post_save.connect(record_answer_accepted, sender=Post)

@@ -4,7 +4,7 @@ Sidebar settings
 from askbot.conf.settings_wrapper import settings
 from askbot.deps.livesettings import ConfigurationGroup
 from askbot.deps.livesettings import values
-from django.utils.translation import ugettext as _
+from django.utils.translation import ugettext_lazy as _
 from askbot.conf.super_groups import CONTENT_AND_UI
 SIDEBAR_QUESTION = ConfigurationGroup(#shitty name - why sidebar?
                     'SIDEBAR_QUESTION',
@@ -19,6 +19,21 @@ settings.register(
         description = _('Top banner'),
         default = '',
         help_text = _(
+            'When using this option, please '
+            'use the HTML validation service to make sure that '
+            'your input is valid and works well in all browsers.'
+        )
+    )
+)
+
+settings.register(
+    values.LongStringValue(
+        SIDEBAR_QUESTION,
+        'QUESTION_PAGE_ANSWER_BANNER',
+        description = _('Answers banner'),
+        default = '',
+        help_text = _(
+            'This banner will show above the second answer. '
             'When using this option, please '
             'use the HTML validation service to make sure that '
             'your input is valid and works well in all browsers.'

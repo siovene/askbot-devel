@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from django.conf import settings
 from django.http import Http404
 from django.shortcuts import get_object_or_404
-from django.utils.translation import ugettext as _
+from django.utils.translation import ugettext_lazy as _
 from django.utils.safestring import mark_safe
 from askbot.conf import settings as askbot_settings
 from askbot.utils.slug import slugify
@@ -206,10 +206,17 @@ def email_is_allowed(
     return False
 
 class UserEmailField(forms.EmailField):
-    def __init__(self,skip_clean=False,**kw):
+    def __init__(self, skip_clean=False, **kw):
         self.skip_clean = skip_clean
+
+        hidden = kw.pop('hidden', False)
+        if hidden is True:
+            widget_class = forms.HiddenInput
+        else:
+            widget_class = forms.TextInput
+
         super(UserEmailField,self).__init__(
-            widget=forms.TextInput(
+            widget=widget_class(
                     attrs=dict(login_form_widget_attrs, maxlength=200)
                 ),
             label=mark_safe(_('Your email <i>(never shared)</i>')),
