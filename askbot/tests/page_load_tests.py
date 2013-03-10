@@ -6,6 +6,7 @@ from django.core import management
 from django.core.cache.backends.dummy import DummyCache
 from django.core import cache
 from django.utils import simplejson
+from django.utils.translation import activate as activate_language
 
 import coffin
 import coffin.template
@@ -18,7 +19,6 @@ from askbot.tests.utils import AskbotTestCase
 from askbot.conf import settings as askbot_settings
 from askbot.tests.utils import skipIf
 from askbot.tests.utils import with_settings
-
 
 
 def patch_jinja2():
@@ -54,6 +54,7 @@ class PageLoadTestCase(AskbotTestCase):
     @classmethod
     def setUpClass(cls):
         management.call_command('flush', verbosity=0, interactive=False)
+        activate_language(settings.LANGUAGE_CODE)
         management.call_command('askbot_add_test_content', verbosity=0, interactive=False)
 
     @classmethod
@@ -104,6 +105,9 @@ class PageLoadTestCase(AskbotTestCase):
         if hasattr(self.client, 'redirect_chain'):
             print 'redirect chain: %s' % ','.join(self.client.redirect_chain)
 
+        if r.status_code != status_code:
+            print 'Error in status code for url: %s' % url
+            
         self.assertEqual(r.status_code, status_code)
 
         if template and status_code != 302:
@@ -135,7 +139,8 @@ class PageLoadTestCase(AskbotTestCase):
         response = self.client.get(reverse('index'), follow=True)
         self.assertEqual(response.status_code, 200)
         self.failUnless(len(response.redirect_chain) == 1)
-        self.failUnless(response.redirect_chain[0][0].endswith('/questions/'))
+        redirect_url = response.redirect_chain[0][0]
+        self.failUnless(unicode(redirect_url).endswith('/questions/'))
         self.assertTrue(isinstance(response.template, list))
         self.assertIn('main_page.html', [t.name for t in response.template])
 
@@ -153,14 +158,14 @@ class PageLoadTestCase(AskbotTestCase):
         self.proto_test_ask_page(True, 200)
 
     @with_settings(GROUPS_ENABLED=False)
-    def test_api_get_questions_groups_disabled(self):
-        data = {'query': 'Question'}
-        response = self.client.get(reverse('api_get_questions'), data)
+    def test_title_search_groups_disabled(self):
+        data = {'query_text': 'Question'}
+        response = self.client.get(reverse('title_search'), data)
         data = simplejson.loads(response.content)
         self.assertTrue(len(data) > 1)
 
     @with_settings(GROUPS_ENABLED=True)
-    def test_api_get_questions_groups_enabled(self):
+    def test_title_search_groups_enabled(self):
 
         group = models.Group(name='secret group', openness=models.Group.OPEN)
         group.save()
@@ -169,14 +174,14 @@ class PageLoadTestCase(AskbotTestCase):
         question = self.post_question(user=user, title='alibaba', group_id=group.id)
 
         #ask for data anonymously - should get nothing
-        query_data = {'query': 'alibaba'}
-        response = self.client.get(reverse('api_get_questions'), query_data)
+        query_data = {'query_text': 'alibaba'}
+        response = self.client.get(reverse('title_search'), query_data)
         response_data = simplejson.loads(response.content)
         self.assertEqual(len(response_data), 0)
 
         #log in - should get the question
         self.client.login(method='force', user_id=user.id)
-        response = self.client.get(reverse('api_get_questions'), query_data)
+        response = self.client.get(reverse('title_search'), query_data)
         response_data = simplejson.loads(response.content)
         self.assertEqual(len(response_data), 1)
 
@@ -194,19 +199,17 @@ class PageLoadTestCase(AskbotTestCase):
             'get_groups_list',
             status_code=status_code
         )
+        #self.try_url(
+        #        'individual_question_feed',
+        #        kwargs={'pk':'one-tag'},
+        #        status_code=status_code)
         self.try_url(
-                'feeds',
-                status_code=status_code,
-                kwargs={'url':'rss'})
+                'latest_questions_feed',
+                status_code=status_code)
         self.try_url(
-                'feeds',
-                kwargs={'url':'rss'},
+                'latest_questions_feed',
                 data={'tags':'one-tag'},
                 status_code=status_code)
-        #self.try_url(
-        #        'feeds',
-        #        kwargs={'url':'question'},
-        #        status_code=status_code)
         self.try_url(
                 'about',
                 status_code=status_code,
@@ -722,3 +725,71 @@ class CommandViewTests(AskbotTestCase):
     def test_load_object_description_fails(self):
         response = self.client.get(reverse('load_object_description'))
         self.assertEqual(response.status_code, 404)#bad request
+
+    def test_set_tag_filter_strategy(self):
+        user = self.create_user('someuser')
+
+        def run_test_for_setting(self, filter_type, value):
+            response = self.client.post(
+                                reverse('set_tag_filter_strategy'),
+                                data={
+                                    'filter_type': filter_type,
+                                    'filter_value': value
+                                },
+                                HTTP_X_REQUESTED_WITH='XMLHttpRequest'
+                            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.content, '')
+
+        self.client.login(user_id=user.id, method='force')
+
+        from askbot import conf
+        values = dict(conf.get_tag_email_filter_strategy_choices()).keys()
+        for value in values:
+            run_test_for_setting(self, 'email', value)
+            user = self.reload_object(user)
+            self.assertEqual(user.email_tag_filter_strategy, value)
+
+        values = dict(conf.get_tag_display_filter_strategy_choices()).keys()
+        for value in values:
+            run_test_for_setting(self, 'display', value)
+            user = self.reload_object(user)
+            self.assertEqual(user.display_tag_filter_strategy, value)
+
+            
+class UserProfilePageTests(AskbotTestCase):
+    def setUp(self):
+        self.user = self.create_user('user')
+
+    @with_settings(EDITABLE_EMAIL=False)
+    def test_user_cannot_change_email(self):
+        #log in
+        self.client.login(user_id=self.user.id, method='force')
+        email_before = self.user.email
+        response = self.client.post(
+            reverse('edit_user', kwargs={'id': self.user.id}),
+            data={
+                'username': 'edited',
+                'email': 'fake@example.com'
+            }
+        )
+        self.assertEqual(response.status_code, 302)
+        user = self.reload_object(self.user)
+        self.assertEqual(user.username, 'edited')
+        self.assertEqual(user.email, email_before)
+
+    @with_settings(EDITABLE_EMAIL=True)
+    def test_user_can_change_email(self):
+        self.client.login(user_id=self.user.id, method='force')
+        email_before = self.user.email
+        response = self.client.post(
+            reverse('edit_user', kwargs={'id': self.user.id}),
+            data={
+                'username': 'edited',
+                'email': 'new@example.com'
+            }
+        )
+        self.assertEqual(response.status_code, 302)
+        user = self.reload_object(self.user)
+        self.assertEqual(user.username, 'edited')
+        self.assertEqual(user.email, 'new@example.com')

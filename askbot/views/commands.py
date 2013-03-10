@@ -20,6 +20,8 @@ from django.http import HttpResponseRedirect
 from django.http import HttpResponseForbidden
 from django.forms import ValidationError, IntegerField, CharField
 from django.shortcuts import get_object_or_404
+from django.shortcuts import render
+from django.template.loader import get_template
 from django.views.decorators import csrf
 from django.utils import simplejson
 from django.utils.html import escape
@@ -28,18 +30,19 @@ from django.utils.translation import string_concat
 from askbot.utils.slug import slugify
 from askbot import models
 from askbot import forms
-from askbot.conf import should_show_sort_by_relevance
+from askbot import conf
+from askbot import const
+from askbot import mail
 from askbot.conf import settings as askbot_settings
 from askbot.utils import category_tree
 from askbot.utils import decorators
 from askbot.utils import url_utils
 from askbot.utils.forms import get_db_object_or_404
-from askbot import mail
-from django.template import Context
-from askbot.skins.loaders import render_into_skin, get_template
+from django.template import RequestContext
 from askbot.skins.loaders import render_into_skin_as_string
 from askbot.skins.loaders import render_text_into_skin
-from askbot import const
+from askbot.models.tag import get_tags_by_names
+
 
 
 @csrf.csrf_exempt
@@ -115,7 +118,7 @@ def manage_inbox(request):
                                     'post': post.html,
                                     'reject_reason': reject_reason.details.html
                                    }
-                            body_text = template.render(Context(data))
+                            body_text = template.render(RequestContext(request, data))
                             mail.send_mail(
                                 subject_line = _('your post was not accepted'),
                                 body_text = unicode(body_text),
@@ -436,13 +439,18 @@ def mark_tag(request, **kwargs):#tagging system
     reason = post_data['reason']
     assert reason in ('good', 'bad', 'subscribed')
     #separate plain tag names and wildcard tags
-
     tagnames, wildcards = forms.clean_marked_tagnames(raw_tagnames)
-    cleaned_tagnames, cleaned_wildcards = request.user.mark_tags(
-                                                            tagnames,
-                                                            wildcards,
-                                                            reason = reason,
-                                                            action = action
+
+    if request.user.is_administrator() and 'user' in post_data:
+        user = get_object_or_404(models.User, pk=post_data['user'])
+    else:
+        user = request.user
+
+    cleaned_tagnames, cleaned_wildcards = user.mark_tags(
+                                                         tagnames,
+                                                         wildcards,
+                                                         reason = reason,
+                                                         action = action
                                                         )
 
     #lastly - calculate tag usage counts
@@ -684,7 +692,7 @@ def subscribe_for_tags(request):
             return HttpResponseRedirect(reverse('index'))
         else:
             data = {'tags': tag_names}
-            return render_into_skin('subscribe_for_tags.html', data, request)
+            return render(request, 'subscribe_for_tags.html', data)
     else:
         all_tag_names = pure_tag_names + wildcards
         message = _('Please sign in to subscribe for: %(tags)s') \
@@ -693,33 +701,137 @@ def subscribe_for_tags(request):
         request.session['subscribe_for_tags'] = (pure_tag_names, wildcards)
         return HttpResponseRedirect(url_utils.get_login_url())
 
+@decorators.admins_only
+def list_bulk_tag_subscription(request):
+    if askbot_settings.SUBSCRIBED_TAG_SELECTOR_ENABLED is False:
+        raise Http404
+    object_list = models.BulkTagSubscription.objects.all()
+    data = {'object_list': object_list}
+    return render(request, 'tags/list_bulk_tag_subscription.html', data)
+
+@decorators.admins_only
+def create_bulk_tag_subscription(request):
+    if askbot_settings.SUBSCRIBED_TAG_SELECTOR_ENABLED is False:
+        raise Http404
+
+    data = {'action': _('Create')}
+    if request.method == "POST":
+        form = forms.BulkTagSubscriptionForm(request.POST)
+        if form.is_valid():
+            tag_names = form.cleaned_data['tags'].split(' ')
+            user_list = form.cleaned_data.get('users')
+            group_list = form.cleaned_data.get('groups')
+
+            bulk_subscription = models.BulkTagSubscription.objects.create(
+                                                            tag_names=tag_names,
+                                                            tag_author=request.user,
+                                                            user_list=user_list,
+                                                            group_list=group_list
+                                                        )
+
+            return HttpResponseRedirect(reverse('list_bulk_tag_subscription'))
+        else:
+            data['form'] = form
+    else:
+        data['form'] = forms.BulkTagSubscriptionForm()
+
+    return render(request, 'tags/form_bulk_tag_subscription.html', data)
+
+@decorators.admins_only
+def edit_bulk_tag_subscription(request, pk):
+    if askbot_settings.SUBSCRIBED_TAG_SELECTOR_ENABLED is False:
+        raise Http404
+
+    bulk_subscription = get_object_or_404(models.BulkTagSubscription,
+                                          pk=pk)
+    data = {'action': _('Edit')}
+    if request.method == "POST":
+        form = forms.BulkTagSubscriptionForm(request.POST)
+        if form.is_valid():
+            bulk_subscription.tags.clear()
+            bulk_subscription.users.clear()
+            bulk_subscription.groups.clear()
+
+            if 'groups' in form.cleaned_data:
+                group_ids = [user.id for user in form.cleaned_data['groups']]
+                bulk_subscription.groups.add(*group_ids)
+
+            tags, new_tag_names = get_tags_by_names(form.cleaned_data['tags'].split(' '))
+            tag_id_list = [tag.id for tag in tags]
+
+            for new_tag_name in new_tag_names:
+                new_tag = models.Tag.objects.create(name=new_tag_name,
+                                             created_by=request.user)
+                tag_id_list.append(new_tag.id)
+
+            bulk_subscription.tags.add(*tag_id_list)
+
+            user_ids = []
+            for user in form.cleaned_data['users']:
+                user_ids.append(user)
+                user.mark_tags(bulk_subscription.tag_list(),
+                               reason='subscribed', action='add')
+
+            bulk_subscription.users.add(*user_ids)
+
+            return HttpResponseRedirect(reverse('list_bulk_tag_subscription'))
+    else:
+        form_initial = {
+                        'users': bulk_subscription.users.all(),
+                        'groups': bulk_subscription.groups.all(),
+                        'tags': ' '.join([tag.name for tag in bulk_subscription.tags.all()]),
+                       }
+        data.update({
+                    'bulk_subscription': bulk_subscription,
+                    'form': forms.BulkTagSubscriptionForm(initial=form_initial),
+                   })
+
+    return render(request, 'tags/form_bulk_tag_subscription.html', data)
+
+@decorators.admins_only
+@decorators.post_only
+def delete_bulk_tag_subscription(request):
+    if askbot_settings.SUBSCRIBED_TAG_SELECTOR_ENABLED is False:
+        raise Http404
+
+    pk = request.POST.get('pk')
+    if pk:
+        bulk_subscription = get_object_or_404(models.BulkTagSubscription, pk=pk)
+        bulk_subscription.delete()
+        return HttpResponseRedirect(reverse('list_bulk_tag_subscription'))
+    else:
+        return HttpResponseRedirect(reverse('list_bulk_tag_subscription'))
 
 @decorators.get_only
-def api_get_questions(request):
-    """json api for retrieving questions"""
-    query = request.GET.get('query', '').strip()
-    if not query:
+def title_search(request):
+    """json api for retrieving questions by title match"""
+    query = request.GET.get('query_text')
+
+    if query is None:
         return HttpResponseBadRequest('Invalid query')
+
+    query = query.strip()
 
     if askbot_settings.GROUPS_ENABLED:
         threads = models.Thread.objects.get_visible(user=request.user)
     else:
         threads = models.Thread.objects.all()
 
-    threads = models.Thread.objects.get_for_query(
-                                    search_query=query,
-                                    qs=threads
-                                )
-
-    if should_show_sort_by_relevance():
-        threads = threads.extra(order_by = ['-relevance'])
+    threads = threads.get_for_title_query(query)
     #todo: filter out deleted threads, for now there is no way
     threads = threads.distinct()[:30]
-    thread_list = [{
-        'title': escape(thread.title),
-        'url': thread.get_absolute_url(),
-        'answer_count': thread.get_answer_count(request.user)
-    } for thread in threads]
+
+    thread_list = list()
+    for thread in threads:#todo: this is a temp hack until thread model is fixed
+        try:
+            thread_list.append({
+                    'title': escape(thread.title),
+                    'url': thread.get_absolute_url(),
+                    'answer_count': thread.get_answer_count(request.user)
+                })
+        except:
+            continue
+
     json_data = simplejson.dumps(thread_list)
     return HttpResponse(json_data, mimetype = "application/json")
 
@@ -735,10 +847,12 @@ def set_tag_filter_strategy(request):
     filter_value = int(request.POST['filter_value'])
     assert(filter_type in ('display', 'email'))
     if filter_type == 'display':
-        assert(filter_value in dict(const.TAG_DISPLAY_FILTER_STRATEGY_CHOICES))
+        allowed_values_dict = dict(conf.get_tag_display_filter_strategy_choices())
+        assert(filter_value in allowed_values_dict)
         request.user.display_tag_filter_strategy = filter_value
     else:
-        assert(filter_value in dict(const.TAG_EMAIL_FILTER_STRATEGY_CHOICES))
+        allowed_values_dict = dict(conf.get_tag_email_filter_strategy_choices())
+        assert(filter_value in allowed_values_dict)
         request.user.email_tag_filter_strategy = filter_value
     request.user.save()
     return HttpResponse('', mimetype = "application/json")
@@ -769,7 +883,7 @@ def close(request, id):#close question
                 'question': question,
                 'form': form,
             }
-            return render_into_skin('close.html', data, request)
+            return render(request, 'close.html', data)
     except exceptions.PermissionDenied, e:
         request.user.message_set.create(message = unicode(e))
         return HttpResponseRedirect(question.get_absolute_url())
@@ -798,7 +912,7 @@ def reopen(request, id):#re-open question
                 'closed_by_profile_url': closed_by_profile_url,
                 'closed_by_username': closed_by_username,
             }
-            return render_into_skin('reopen.html', data, request)
+            return render(request, 'reopen.html', data)
 
     except exceptions.PermissionDenied, e:
         request.user.message_set.create(message = unicode(e))
@@ -815,12 +929,13 @@ def swap_question_with_answer(request):
     """
     if request.user.is_authenticated():
         if request.user.is_administrator() or request.user.is_moderator():
-            answer = models.Post.objects.get_answers(request.user).get(id = request.POST['answer_id'])
+            answer = models.Post.objects.get_answers(
+                                                request.user
+                                            ).get(
+                                                id=request.POST['answer_id']
+                                            )
             new_question = answer.swap_with_question(new_title = request.POST['new_title'])
-            return {
-                'id': new_question.id,
-                'slug': new_question.slug
-            }
+            return {'question_url': new_question.get_absolute_url() }
     raise Http404
 
 @csrf.csrf_exempt

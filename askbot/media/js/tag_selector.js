@@ -123,7 +123,8 @@ function pickedTags(){
 
         var data = JSON.stringify({
             tagnames: tagnames,
-            reason: reason
+            reason: reason,
+            user: askbot['data']['viewUserId'] 
         });
         var call_settings = {
             type:'POST',
@@ -150,7 +151,9 @@ function pickedTags(){
                 'remove',
                 function(){
                     deleteTagLocally();
-                    liveSearch.refresh();
+                    if ($('body').hasClass('main-page')) {
+                      askbot['controllers']['fullTextSearch'].refresh();
+                    }
                 }
             );
         }
@@ -293,7 +296,7 @@ function pickedTags(){
                         to_tag_container
                     );
                     $(input_sel).val('');
-                    liveSearch.refresh();
+                    askbot['controllers']['fullTextSearch'].refresh();
                 }
             );
         }
@@ -348,7 +351,7 @@ function pickedTags(){
                     filter_value: $(this).val()
                 },
                 success: function(){
-                    liveSearch.refresh();
+                    askbot['controllers']['fullTextSearch'].refresh();
                 }
             });
         });

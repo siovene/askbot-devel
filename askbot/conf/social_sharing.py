@@ -3,21 +3,30 @@ Social sharing settings
 """
 from askbot.conf.settings_wrapper import settings
 from askbot.conf.super_groups import EXTERNAL_SERVICES
-from askbot.deps.livesettings import ConfigurationGroup, BooleanValue
-from django.utils.translation import ugettext as _
+from askbot.deps.livesettings import ConfigurationGroup, BooleanValue, StringValue
+from django.utils.translation import ugettext_lazy as _
 
 SOCIAL_SHARING = ConfigurationGroup(
             'SOCIAL_SHARING',
-            _('Sharing content on social networks'), 
+            _('Content sharing'), 
             super_group = EXTERNAL_SERVICES
         )
 
 settings.register(
     BooleanValue(
         SOCIAL_SHARING,
-        'ENABLE_TINYURL',
+        'RSS_ENABLED',
         default=True,
-        description=_('Check to enable shortening the URLs with tinyurl')
+        description=_('Check to enable RSS feeds')
+    )
+)
+
+settings.register(
+    StringValue(
+        SOCIAL_SHARING,
+        'SHARING_SUFFIX_TEXT',
+        default='',
+        description=_('Hashtag or suffix to sharing messages')
     )
 )
 

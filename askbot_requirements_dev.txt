@@ -1,5 +1,5 @@
 akismet
-django==1.3.1
+django==1.4.2
 Jinja2
 Coffin>=0.3
 South>=0.7.1
@@ -21,3 +21,7 @@ python-openid
 pystache==0.3.1
 pylint
 pytz
+sanction
+django-tinymce
+longerusername
+beautifulsoup4

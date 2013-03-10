@@ -4,6 +4,8 @@ import re
 from django import forms
 from askbot import const
 from askbot.const import message_keys
+from django.conf import settings as django_settings
+from django.core.exceptions import PermissionDenied
 from django.forms.util import ErrorList
 from django.utils.translation import ugettext_lazy as _
 from django.utils.translation import ungettext_lazy, string_concat
@@ -203,6 +205,13 @@ class CountedWordsField(forms.CharField):
         return value
 
 
+class LanguageField(forms.ChoiceField):
+
+    def __init__(self, *args, **kwargs):
+        kwargs['choices'] = django_settings.LANGUAGES
+        super(LanguageField, self).__init__(*args, **kwargs)
+
+
 class DomainNameField(forms.CharField):
     """Field for Internet Domain Names
     todo: maybe there is a standard field for this?
@@ -392,8 +401,8 @@ class TagNamesField(forms.CharField):
                             'We ran out of space for recording the tags. '
                             'Please shorten or delete some of them.'
                         )
-        self.label = _('tags')
-        self.help_text = ungettext_lazy(
+        self.label = kwargs.get('label') or _('tags')
+        self.help_text = kwargs.get('help_text') or ungettext_lazy(
             'Tags are short keywords, with no spaces within. '
             'Up to %(max_tags)d tag can be used.',
             'Tags are short keywords, with no spaces within. '
@@ -457,7 +466,7 @@ class WikiField(forms.BooleanField):
         self.required = False
         self.initial = False
         self.label = _(
-            'community wiki (reputation is not awarded & '
+            'community wiki (karma is not awarded & '
             'many others can edit wiki post)'
         )
         self.help_text = _(
@@ -562,10 +571,7 @@ class ShowQuestionForm(forms.Form):
             out_data['show_answer'] = in_data.get('answer', None)
         else:
             out_data['show_page'] = in_data.get('page', 1)
-            out_data['answer_sort_method'] = in_data.get(
-                                                    'sort',
-                                                    self.default_sort_method
-                                                )
+            out_data['answer_sort_method'] = in_data.get('sort', 'votes')
             out_data['show_comment'] = None
             out_data['show_answer'] = None
         self.cleaned_data = out_data
@@ -633,12 +639,13 @@ class ChangeUserStatusForm(forms.Form):
         super(ChangeUserStatusForm, self).__init__(*arg, **kwarg)
 
         #select user_status_choices depending on status of the moderator
-        if moderator.is_administrator():
-            user_status_choices = ADMINISTRATOR_STATUS_CHOICES
-        elif moderator.is_moderator():
-            user_status_choices = MODERATOR_STATUS_CHOICES
-            if subject.is_moderator() and subject != moderator:
-                raise ValueError('moderator cannot moderate another moderator')
+        if moderator.is_authenticated():
+            if moderator.is_administrator():
+                user_status_choices = ADMINISTRATOR_STATUS_CHOICES
+            elif moderator.is_moderator():
+                user_status_choices = MODERATOR_STATUS_CHOICES
+                if subject.is_moderator() and subject != moderator:
+                    raise ValueError('moderator cannot moderate another moderator')
         else:
             raise ValueError('moderator or admin expected from "moderator"')
 
@@ -929,6 +936,9 @@ class AskForm(PostAsSomeoneForm, PostPrivatelyForm):
         #it's important that this field is set up dynamically
         self.fields['text'] = QuestionEditorField(user=user)
         #hide ask_anonymously field
+        if getattr(django_settings, 'ASKBOT_MULTILINGUAL', False):
+            self.fields['language'] = LanguageField()
+
         if askbot_settings.ALLOW_ASK_ANONYMOUSLY is False:
             self.hide_field('ask_anonymously')
 
@@ -1160,11 +1170,7 @@ class RevisionForm(forms.Form):
     """
     Lists revisions of a Question or Answer
     """
-    revision = forms.ChoiceField(
-                    widget=forms.Select(
-                        attrs={'style': 'width:520px'}
-                    )
-                )
+    revision = forms.ChoiceField(widget=forms.Select())
 
     def __init__(self, post, latest_revision, *args, **kwargs):
         super(RevisionForm, self).__init__(*args, **kwargs)
@@ -1214,12 +1220,21 @@ class EditQuestionForm(PostAsSomeoneForm, PostPrivatelyForm):
         if not self.can_stay_anonymous():
             self.hide_field('reveal_identity')
 
+        if getattr(django_settings, 'ASKBOT_MULTILINGUAL', False):
+            self.fields['language'] = LanguageField()
+
     def has_changed(self):
         if super(EditQuestionForm, self).has_changed():
             return True
         if askbot_settings.GROUPS_ENABLED:
-            return self.question.is_private() \
-                != self.cleaned_data['post_privately']
+            was_private = self.question.is_private()
+            if was_private != self.cleaned_data['post_privately']:
+                return True
+
+        if getattr(django_settings, 'ASKBOT_MULTILINGUAL', False):
+            old_language = self.question.thread.language_code
+            if old_language != self.cleaned_data['language']:
+                return True
         else:
             return False
 
@@ -1333,7 +1348,7 @@ class EditTagWikiForm(forms.Form):
 class EditUserForm(forms.Form):
     email = forms.EmailField(
                     label=u'Email',
-                    required=True,
+                    required=False,
                     max_length=255,
                     widget=forms.TextInput(attrs={'size': 35})
                 )
@@ -1659,3 +1674,17 @@ class ModerateTagForm(forms.Form):
 class ShareQuestionForm(forms.Form):
     thread_id = forms.IntegerField()
     recipient_name = forms.CharField()
+
+class BulkTagSubscriptionForm(forms.Form):
+    date_added = forms.DateField(required=False, widget=forms.HiddenInput())
+    tags = TagNamesField(label=_("Tags"), help_text=' ')
+
+    def __init__(self, *args, **kwargs):
+        from askbot.models import BulkTagSubscription, Tag, Group
+        super(BulkTagSubscriptionForm, self).__init__(*args, **kwargs)
+        self.fields['users'] = forms.ModelMultipleChoiceField(queryset=User.objects.all())
+        if askbot_settings.GROUPS_ENABLED:
+            self.fields['groups'] = forms.ModelMultipleChoiceField(queryset=Group.objects.exclude_personal())
+
+class DeleteCommentForm(forms.Form):
+    comment_id = forms.IntegerField()

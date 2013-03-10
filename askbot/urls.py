@@ -2,6 +2,7 @@
 askbot askbot url configuraion file
 """
 import os.path
+import django
 from django.conf import settings
 from django.conf.urls.defaults import url, patterns, include
 from django.conf.urls.defaults import handler500, handler404
@@ -12,7 +13,7 @@ from askbot.sitemap import QuestionsSitemap
 from askbot.skins.utils import update_media_revision
 
 admin.autodiscover()
-update_media_revision()#needs to be run once, so put it here
+#update_media_revision()#needs to be run once, so put it here
 
 if getattr(settings, "ASKBOT_TRANSLATE_URL", False):
     from django.utils.translation import ugettext as _
@@ -37,7 +38,7 @@ urlpatterns = patterns('',
         name='sitemap'
     ),
     #no translation for this url!!
-    url(r'import-data/$', views.writers.import_data, name='import_data'),
+    url(r'^import-data/$', views.writers.import_data, name='import_data'),
     url(r'^%s$' % _('about/'), views.meta.about, name='about'),
     url(r'^%s$' % _('faq/'), views.meta.faq, name='faq'),
     url(r'^%s$' % _('privacy/'), views.meta.privacy, name='privacy'),
@@ -73,9 +74,9 @@ urlpatterns = patterns('',
     # END main page urls
 
     url(
-        r'^api/get_questions/',
-        views.commands.api_get_questions,
-        name='api_get_questions'
+        r'^api/title_search/',
+        views.commands.title_search,
+        name='title_search'
     ),
     url(
         r'^get-thread-shared-users/',
@@ -193,15 +194,22 @@ urlpatterns = patterns('',
         views.readers.get_comment,
         name='get_comment'
     ),
-    url(#post only
+    url(
         r'^comment/convert/$',
         views.writers.comment_to_answer,
         name='comment_to_answer'
     ),
+    url(
+        r'^answer/repost-as-comment-under-question/$',
+        views.writers.repost_answer_as_comment,
+        kwargs={'destination': 'comment_under_question'},
+        name='repost_answer_as_comment_under_question'
+    ),
     url(#post only
-        r'^answer/convert/$',
-        views.writers.answer_to_comment,
-        name='answer_to_comment'
+        '^answer/repost-as-comment-under-previous-answer/$',
+        views.writers.repost_answer_as_comment,
+        kwargs={'destination': 'comment_under_previous_answer'},
+        name='repost_answer_as_comment_under_previous_answer'
     ),
     url(#post only
         r'^answer/publish/$',
@@ -214,10 +222,36 @@ urlpatterns = patterns('',
         name='tags'
     ),
     url(
+        r'^%s$' % _('tags/subscriptions/'),
+        views.commands.list_bulk_tag_subscription,
+        name='list_bulk_tag_subscription'
+    ),
+    url(#post only
+        r'^%s$' % _('tags/subscriptions/delete/'),
+        views.commands.delete_bulk_tag_subscription,
+        name='delete_bulk_tag_subscription'
+    ),
+    url(
+        r'^%s$' % _('tags/subscriptions/create/'),
+        views.commands.create_bulk_tag_subscription,
+        name='create_bulk_tag_subscription'
+    ),
+    url(
+        r'^%s(?P<pk>\d+)/$' % _('tags/subscriptions/edit/'),
+        views.commands.edit_bulk_tag_subscription,
+        name='edit_bulk_tag_subscription'
+    ),
+
+    url(
         r'^%s$' % _('suggested-tags/'),
         views.meta.list_suggested_tags,
         name = 'list_suggested_tags'
     ),
+
+    #feeds
+    url(r'^feeds/rss/$', RssLastestQuestionsFeed(), name="latest_questions_feed"),
+    url(r'^feeds/question/(?P<pk>\d+)/$', RssIndividualQuestionFeed(), name="individual_question_feed"),
+
     url(#ajax only
         r'^%s$' % 'moderate-suggested-tag',
         views.commands.moderate_suggested_tag,
@@ -360,6 +394,14 @@ urlpatterns = patterns('',
         name = 'user_subscriptions'
     ),
     url(
+        r'^%s(?P<id>\d+)/(?P<slug>.+)/%s$' % (
+            _('users/'),
+            _('select_languages/'),
+        ),
+        views.users.user_select_languages,
+        name = 'user_select_languages'
+    ),
+    url(
         r'^%s(?P<id>\d+)/(?P<slug>.+)/$' % _('users/'),
         views.users.user,
         name='user_profile'
@@ -473,16 +515,9 @@ urlpatterns = patterns('',
         views.widgets.question_widget,
         name = 'question_widget'
     ),
-    url(
-        r'^feeds/(?P<url>.*)/$',
-        'django.contrib.syndication.views.feed',
-        {'feed_dict': feeds},
-        name='feeds'
-    ),
     #upload url is ajax only
     url( r'^%s$' % _('upload/'), views.writers.upload, name='upload'),
     url(r'^%s$' % _('feedback/'), views.meta.feedback, name='feedback'),
-    #url(r'^feeds/rss/$', RssLastestQuestionsFeed, name="latest_questions_feed"),
     url(
         r'^doc/(?P<path>.*)$',
         'django.views.static.serve',

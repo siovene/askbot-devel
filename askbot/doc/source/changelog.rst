@@ -3,6 +3,40 @@ Changes in Askbot
 
 Development version
 -------------------
+* Added full text support for some languages with Postgresql:
+  Danish, Dutch, English, Finnish, French, German, Hungarian,
+  Italian, Japanese (requires package textsearch_ja), Norwegian,
+  Portugese, Romanian, Russian, Spanish, Swedish, Turkish.
+* repost answer as a comment under the previous (older) answer
+  
+
+0.7.48 (Jan 28, 2013)
+---------------------
+* made "how to ask the question" instructions editable
+* added RSS auto-discovery link
+* added support for multilingual site (experimental)
+* tag subscription manager on the tags page (Adolfo)
+
+0.7.47 (Dec 13, 2012)
+---------------------
+* Bugfix release
+
+0.7.46 (Dec 12, 2012)
+---------------------
+* Bugfix release
+
+0.7.45 (Dec 12, 2012)
+---------------------
+* Feedback sender's email is added to the Reply-To header
+  in the feedback form (Evgeny)
+* Reimplemented search as drop-down (Evgeny)
+* Basic design to work on smartphones (Evgeny)
+* Allowed use of alternative form on the user signup page (Evgeny)
+
+0.7.44 (Nov 11, 2012)
+---------------------
+* Support for django 1.4 (Adolfo)
+* Added option to enable/disable rss feeds (Evgeny)
 * Added minimum reputation to insert links and hotlinked images (Evgeny)
 * Added minimum reputation to suggest links as plain text (Evgeny)
 * Added support of Haystack for search (Adolfo)

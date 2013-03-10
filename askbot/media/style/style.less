@@ -11,7 +11,7 @@
     font-weight: normal;
     font-style: normal;
 }
- 
+
 @font-face {
     font-family: 'Roboto';
     src: url('../fonts/roboto/Roboto-Italic-webfont.eot');
@@ -22,7 +22,7 @@
     font-weight: normal;
     font-style: italic;
 }
- 
+
 @font-face {
     font-family: 'Roboto';
     src: url('../fonts/roboto/Roboto-Bold-webfont.eot');
@@ -33,7 +33,7 @@
     font-weight: bold;
     font-style: normal;
 }
- 
+
 @font-face {
     font-family: 'Roboto';
     src: url('../fonts/roboto/Roboto-BoldItalic-webfont.eot');
@@ -262,6 +262,10 @@ a:hover {
     text-decoration: underline;
 }
 
+.avatar-box {
+    text-decoration: none;
+}
+
 .badge-context-toggle.active {
     cursor: pointer;
     text-decoration: underline;
@@ -297,7 +301,8 @@ body.user-messages {
     top: 0px;
     left: 0px;
     width: 100%;
-    z-index: 100;
+    height: 34px;
+    z-index: 100000;
     padding: 0;
     text-align: center;
     background-color: #f5dd69;
@@ -309,6 +314,11 @@ body.user-messages {
         font-size: 16px;
         color:#424242
     }
+}
+
+.wait-icon-box {
+    text-align: center;
+    margin-bottom: 8px;
 }
 
 #closeNotify {
@@ -349,10 +359,32 @@ body.user-messages {
     float: left;
 }
 
+.lang-nav {
+    position: relative;
+    ul {
+        display: none;
+        list-style: none;
+        z-index: 10000;
+        margin: 0;
+    }
+    &:hover ul,
+    ul:hover {
+        display: block;
+        position: absolute;
+        width: 100px;
+    }
+    li {
+        color: @info-text;
+        background: white;
+        display: block;
+    }
+}
+
 #userToolsNav {/* Navigation bar containing login link or user information, check widgets/user_navigation.html*/
     height: 20px;
     padding-bottom:5px;
     float: right;/* for #header.with-logo it is modified */
+    white-space: nowrap;
 
     a {
         height: 35px;
@@ -479,6 +511,7 @@ body.user-messages {
     .dropdown-menu{
         border-top: none;
         left: 7%;
+        z-index: 10100;
         a{
             color: #666;
             height: 25px;
@@ -506,44 +539,37 @@ body.user-messages {
     border-top:#fcfcfc 1px solid;
     margin-bottom:10px;
     font-family:@main-font;
+}
 
-    #homeButton{
-        border-right:#afaf9e 1px solid;
-       .sprites(-6px,-36px);
-        height:55px;
-       width:43px;
-       display:block;
-       float:left;
-    }
+#homeButton{
+    border-right: #afaf9e 1px solid;
+    .sprites(-6px,-36px);
+    height:55px;
+    width:43px;
+    display:block;
+    float:left;
+}
 
-    #homeButton:hover{
-        .sprites(-6px-45,-36px);
-    }
+#homeButton:hover{
+    .sprites(-51px,-36px);
+}
 
-    #scopeWrapper{
-        width:688px;
-        float:left;
+.scope-selector {
+    display:block;
+    float:left;
+    font-size:20px;
+    color:#7a7a6b;
+    height:55px;
+    line-height:55px;
+    margin-left:16px
+}
 
-        a{
-            display:block;
-           float:left;
-         }
+.scope-selector.on {
+    background:url(../images/scopearrow.png) no-repeat center bottom;
+}
 
-        .scope-selector{
-            font-size:14px;
-            color:#7a7a6b;
-            height:55px;
-            line-height:55px;
-            margin-left:16px
-        }
-        .on{
-            background:url(../images/scopearrow.png) no-repeat center bottom;
-        }
-
-        .ask-message{
-            font-size:24px;
-        }
-    }
+.scope-selector.ask-message {
+    font-size:24px;
 }
 
 .validate-email-page {
@@ -566,90 +592,154 @@ body.user-messages {
 }
 
 #searchBar { /* Main search form , check widgets/search_bar.html */
-    display: inline-block;
+    display: block;
     background-color: #fff;
     width: 270px;
     border: 1px solid #c9c9b5;
-    float:right;
-    height:42px;
-    margin:6px 0px 0px 15px;
+    height: 41px;
+    z-index: 10000;
+    position: relative;
 
-    .searchInput, .searchInputCancelable{
-        font-size: 26px;
-        height: 39px;
-        line-height: 39px;
+    input.searchInput {
+        font-size: 22px;
+        height: 26px;
+        line-height: 26px;
         font-weight:300;
         background:#FFF;
         border:0px;
         color:#484848;
-        padding-left:10px;
-        padding-top: 1px;
         font-family:@body-font;
-        vertical-align: top;
+        width: 100%;
+        margin: 8px 0 6px 0;
+        padding: 0;
+        -webkit-box-shadow: none;
+        -moz-box-shadow: none;
+        box-shadow: none;
     }
 
-    .searchInput,{
-        width: 212px;
-    }
-
-    .searchInputCancelable {
-        width: 177px;
-    }
-
-    .logoutsearch {
-        width: 337px;
-    }
-
-    .searchBtn {
-        font-size: 10px;
-        color: #666;
-        background-color: #eee;
-        height: 42px;
-        border:#FFF 1px solid;
-        line-height: 22px;
-        text-align: center;
-        float:right;
-        margin: 0px;
-        width:48px;
-        .sprites(-98px,-36px);
-        cursor:pointer;
-    }
-
-    .searchBtn:hover {
-        .sprites(-98px-48,-36px);
-    }
-
-    .cancelSearchBtn {
-        font-size: 30px;
-        color: #ce8888;
-        background:#fff;
-        height: 42px;
-        line-height: 42px;
-        border:0px;
-        border-left:#deded0 1px solid;
-        text-align: center;
-        width: 35px;
-        cursor:pointer;
-    }
-
-    .cancelSearchBtn:hover {
-        color: #d84040;
+    div.input-tool-tip {
+        margin-top: -40px;
+        padding-top: 10px;
+        height: 30px;
+        line-height: 20px;
+        font-size: 20px;
+        font-style: italic;
     }
 }
 
-body.anon {
-    #searchBar {
-        width: 370px;
-        .searchInput {
-            width: 312px;
-        }
+.search-drop-menu {
+    box-sizing: border-box;
+    background: whitesmoke;
+    border: 1px solid #c9c9b5;
+    border-top: none;
+    margin: 0;
+    position: relative;
+    top: 0;
+    z-index: 10000;
 
-        .searchInputCancelable {
-            width: 277px;
+    ul {
+        list-style: none;
+        overflow: auto;
+        padding: 0 0 10px 0;
+        margin: 0;
+        position: relative;
+        li {
+            padding: 5px 10px;
+            position: relative;
+            a {
+                text-decoration: none;
+            }
+        }
+        li.selected {
+            background: #08c;
+            a {
+                color: whitesmoke;
+            }
+        }
+    }
+
+    ul.empty {
+        margin-bottom: 0;
+    }
+
+    .footer {
+        text-align: center;
+        padding-bottom: 10px;
+    }
+}
+
+.search-drop-menu.empty {
+    ul {
+        padding: 5px;
+        margin: 0;
+    }
+}
+
+.input-tool-tip {
+    color: #999;
+}
+.input-tool-tip.dimmed {
+    color: #ccc;
+}
+
+input[type="submit"].searchBtn {
+    font-size: 10px;
+    color: #666;
+    background-color: #eee;
+    height: 41px;
+    border:#FFF 1px solid;
+    line-height: 22px;
+    text-align: center;
+    float:right;
+    margin: 7px 28px 0 0;
+    width: 48px;
+    .sprites(-98px,-36px);
+    cursor:pointer;
+    position: relative;
+    z-index: 10001;
+}
+.ask-page {
+    input[type="submit"].searchBtn {
+        display: none;
+    }
+    .input-tool-tip {
+        color: white;
+        height: 0;
+        z-index: 0;
+    }
+    .search-drop-menu.empty {
+        border: none;
+        padding: 0;
+        ul {
+            padding: 0;
         }
     }
 }
 
+.searchBtn:hover {
+    .sprites(-98px-48,-36px);
+}
+
+.cancelSearchBtn {
+    font-size: 30px;
+    color: #ce8888;
+    background:#fff;
+    height: 41px;
+    line-height: 42px;
+    border:0px;
+    border-left:#deded0 1px solid;
+    text-align: center;
+    width: 35px;
+    cursor:pointer;
+    float: right;
+    margin-top: 7px;
+    position: relative;
+    z-index: 10001;
+}
+
+.cancelSearchBtn:hover {
+    color: #d84040;
+}
 
 #askButton{ /* check blocks/secondary_header.html and widgets/ask_button.html*/
     line-height:44px;
@@ -663,6 +753,37 @@ body.anon {
 #askButton:hover{
     .button-style-hover;
 }
+
+/*
+    Put the secondary navigation together:
+    1) raise the search bar by 55px
+    2) add padding to fit the buttons
+*/
+#searchBar {
+    margin: 0 228px 0 327px;
+    width: auto;
+    margin-top: -49px;
+    padding: 0 49px 0 8px;
+}
+/* line up drop menu the same way as the search bar */
+.search-drop-menu {
+    margin: 0 228px 0 327px;
+    width: auto;
+}
+.ask-page .search-drop-menu,
+body.anon.ask-page .search-drop-menu {
+    margin: 0;
+}
+body.anon {
+    #searchBar,
+    .search-drop-menu {
+        margin-left: 227px;/* we don't have the "followed" scope */
+    }
+}
+#searchBar.cancelable {
+    padding-right: 82px;
+}
+
 
 /* ----- Content layout, check two_column_body.html or one_column_body.html ----- */
 
@@ -893,14 +1014,17 @@ body.anon {
 }
 /* tips and markdown help are widgets for ask template */
 
-#tips{
-    li{
-       color:@info-text;
-       font-size:13px;
-       list-style-image: url(../images/tips.png);
-    }
-    a{
-        font-size:16px;
+.question-instructions {
+    background: #e9e9e1;
+    -moz-border-radius: 5px;
+    -khtml-border-radius: 5px;
+    -webkit-border-radius: 5px;
+    .box-shadow(1px, 1px, 3px, #999);
+    padding: 7px 0 1px 2px;
+    margin-bottom: 10px;
+    width: 100%;
+    ul {
+        margin: 0 0 0 27px;
     }
 }
 
@@ -1445,16 +1569,18 @@ ul#related-tags li {
         padding-right: 20px;
     }
     td.per-thread-controls {
-        width: 120px;/* 20px more to compensate for the padding */
+        width: 160px;/* 20px more to compensate for the padding */
         height: 30px;
         button {
             display: none;
         }
     }
-    th.decision-col,
     th.tags-col,
     th.users-col {
         width: 100px;
+    }
+    th.decision-col {
+        width: 140px;
     }
     tr.per-tag-controls {
         height: 30px;
@@ -1533,10 +1659,11 @@ ul#related-tags li {
 
 #askFormBar {
     display:inline-block;
-    padding: 4px 7px 0px 0px;
+    padding: 4px 0 0 0;
     margin-top:0px;
+    width: 100%;
 
-    p{
+    p {
        margin:0 0 5px 0;
        font-size:14px;
        color:@info-text-dark;
@@ -1546,10 +1673,10 @@ ul#related-tags li {
         font-size: 24px;
         height: 36px;
         line-height: 36px;
-        margin: 0px;
-        padding: 0px 0 0 5px;
-        border:lighten(@link, 50%) 1px solid;
-        width:719px;
+        margin: 0;
+        padding: 0;/*-left: 5px;*/
+        border:#cce6ec 3px solid;
+        width: 100%;/*719px;*/
     }
 }
 
@@ -1593,11 +1720,16 @@ ul#related-tags li {
     }
 
     #id_tags {
-        border:lighten(@link, 50%) 1px solid;
-        height:25px;
-        padding-left:5px;
-        font-size:14px;
-        width:395px;
+        box-sizing: border-box;
+        border: #cce6ec 3px solid;
+        height: 31px;
+        padding-left: 5px;
+        font-size: 14px;
+        width: 100%;
+        max-width: 395px;
+    }
+    .lang-selector {
+        margin: 1px 0 0 5px;
     }
 }
 
@@ -1740,8 +1872,7 @@ ul#related-tags li {
 }
 
 .wmd-container {
-    border:lighten(@link, 50%) 1px solid;
-    min-height: 250px;
+    border:#cce6ec 3px solid;
     textarea {
         border: none;
     }
@@ -1755,9 +1886,14 @@ ul#related-tags li {
 .edit-answer-page {
     .wmd-container {
         width: 723px;
+        width: 100%;
     }
     #editor {
-        width: 710px;
+        -webkit-box-sizing: border-box;
+        -moz-box-sizing: border-box;
+        box-sizing: border-box;
+        width: 100%;
+        height: 100%;
         padding: 6px;
     }
     .retagger-buttons {
@@ -1770,7 +1906,7 @@ ul#related-tags li {
 #editor { /* adjustment for editor preview */
     display: block;
     font-size: 100%;
-    min-height: 200px;
+    min-height: 210px;
     line-height: 18px;
     margin: 0;
     border: 0;
@@ -1786,7 +1922,7 @@ ul#related-tags li {
 
 .wmd-preview {
     color: #525252;
-    margin: 0;
+    margin: 0 0 12px 0;
     padding: 5px;
     background-color: #F5F5F5;
     min-height: 20px;
@@ -1850,9 +1986,10 @@ ul#related-tags li {
 }
 
 .preview-toggle {
-    width: 100%;
     color: #b6a475; /*letter-spacing:1px;*/
+    line-height: 28px;
     text-align: left;
+    width: 100%;
 }
 
 .preview-toggle span:hover {
@@ -1893,6 +2030,7 @@ ul#related-tags li {
         font-size:14px;
         margin-top:5px;
         margin-bottom:5px;
+        width: 100%;
     }
     #id_title{
         font-size: 24px;
@@ -1900,8 +2038,8 @@ ul#related-tags li {
         height: 36px;
         margin: 0px;
         padding: 0px 0 0 5px;
-        border:lighten(@link, 50%) 1px solid;
-        width: 719px;
+        border:#cce6ec 3px solid;
+        width: 100%;
         margin-bottom:10px;
     }
     #id_summary{
@@ -1947,7 +2085,7 @@ ul#related-tags li {
         vertical-align: top;
     }
 
-    .question-content{
+    .question-content {
         float:right;
         width:682px;
         margin-bottom:10px;
@@ -1988,6 +2126,7 @@ ul#related-tags li {
         margin-top:10px;
         font-family:@body-font;
         color:#4b4b4b;
+        word-wrap: break-word;
 
         p{
             margin-bottom:14px;
@@ -2058,7 +2197,8 @@ ul#related-tags li {
         margin-top:10px;
         margin-bottom:8px;
 
-        a {
+        a,
+        span.dropdown-toggle {
             color: #777;
             padding: 0px 7px 3px 18px;
             cursor: pointer;
@@ -2067,17 +2207,51 @@ ul#related-tags li {
             font-family:@body-font;
             text-decoration: none;
             height:18px;
-            display:block;
-            float:right;
             line-height:18px;
             margin-top:-2px;
             margin-left:4px;
         }
 
-         a:hover {
+        a:hover,
+        span.dropdown-toggle:hover {
             background-color: #f5f0c9;
+        }
+        span.dropdown-toggle {
+            background: url(../images/sprites.png) no-repeat -7px -242px;
             .rounded-corners(3px);
-
+            position: relative;
+        }
+        span.dropdown-toggle:hover {
+            padding-right: 0;
+            background: url(../images/sprites.png) no-repeat -7px -274px;
+            form {
+                margin: 0;
+            }
+            input {
+                display: block !important;
+                height: 20px !important;
+                line-height: 20px !important;
+                margin: 0;
+                padding: 0 5px;
+                .rounded-corners(0);
+                width: 100% !important;
+            }
+            .dropdown-menu {
+                display: block;
+                padding: 5px 0;
+                right: -5px !important;
+                left: auto;
+                li,
+                li:hover {
+                    display: block !important;
+                    margin: 0;
+                    padding: 0;
+                    width: 100% !important;
+                }
+                li:hover {
+                    background-color: #f5f0c9;
+                }
+            }
         }
         .sep {
             color: #ccc;
@@ -2088,11 +2262,11 @@ ul#related-tags li {
     }
     .post-controls, .answer-controls{
         .question-delete{
-            background: url(../images/delete.png) no-repeat left 2px;
+            background: url(../images/delete.png) no-repeat left -1px;
             padding-left:11px;
         }
         .question-flag{
-            background: url(../images/flag.png) no-repeat center left;
+            background: url(../images/flag.png) no-repeat 2px 0;
         }
         .answer-publish{
             background: url(../images/publish.png) no-repeat center left;
@@ -2101,7 +2275,7 @@ ul#related-tags li {
             background: url(../images/unpublish.png) no-repeat 2px center;
         }
         .question-edit{
-            background: url(../images/edit2.png) no-repeat 2px center;
+            background: url(../images/edit2.png) no-repeat 3px 1px;
         }
         .question-retag{
             background: url(../images/retag.png) no-repeat center left;
@@ -2110,7 +2284,7 @@ ul#related-tags li {
             background: url(../images/close.png) no-repeat center left;
         }
         .permant-link{
-            background: url(../images/link.png) no-repeat center left;
+            background: url(../images/link.png) no-repeat 2px 1px;
         }
 
         .answer-convert{
@@ -2615,13 +2789,15 @@ ul#related-tags li {
 .meta,
 .users-page,
 .user-profile-edit-page,
-.user-profile-page,
-{
+.user-profile-page {
     form{
         margin-bottom:15px;
     }
-    input[type="text"],input[type="password"],select{
-        border:lighten(@link, 50%) 1px solid;
+
+    input[type="text"],
+    input[type="password"],
+    select{
+        border:#cce6ec 3px solid;
         height:25px;
         line-height: 25px;
         padding-left:5px;
@@ -2815,7 +2991,7 @@ a:hover.medal {
     float:left;
 }
 
-.user-profile-page{
+.user-profile-page {
     color:@info-text-dark;
 
     p{
@@ -2823,13 +2999,27 @@ a:hover.medal {
         line-height:1.3;
         color:@info-text-dark;
     }
-    .avatar img{
+    .avatar img {
         border:#eee 1px solid;
        padding:5px;
     }
-    h2{
+    h2 {
         padding:10px 0px 10px 0px;
         font-family:@main-font;
+    }
+
+    .inputs {
+        margin-top: 10px;
+        margin-bottom: 10px;
+        input[type='submit']{
+          .button-style(26px,15px);
+        }
+    }
+    input[type='submit'].select-language {
+        .button-style(26px,15px);
+    }
+    select {
+        margin-bottom: 12px;
     }
 }
 
@@ -3744,6 +3934,10 @@ p.signup_p {
     clear:both;
     line-height:18px;
     margin-bottom:15px;
+    h2 {
+        margin: 0;
+        padding: 0;
+    }
 }
 
 #responses div.face {
@@ -3755,7 +3949,7 @@ p.signup_p {
 }
 
 .response-parent {
-    margin-top: 18px;
+    margin-top: 8px;
 }
 
 .response-parent strong{
@@ -3770,9 +3964,6 @@ p.signup_p {
 
 #responses input {
     float:left;
-}
-#re_tools {
-    margin-bottom:10px;
 }
 #re_sections {
     margin-bottom:6px;
@@ -3821,42 +4012,14 @@ img.flag {
 }
 
 
-/* Pretty printing styles. Used with prettify.js. */
-
 a.edit {
     padding-left:3px;
     color: #145bff;
 }
 
-pre {
-    .str { color: #080; }
-    .kwd { color: #008; }
-    .com { color: #800; }
-    .typ { color: #606; }
-    .lit { color: #066; }
-    .pun { color: #660; }
-    .pln { color: #000; }
-    .tag { color: #008; }/* name conflict here with tags */
-    .atn { color: #606; }
-    .atv { color: #080; }
-    .dec { color: #606; }
-}
-pre.prettyprint { clear:both;padding: 3px; border: 0px solid #888; }
+/* Pretty printing styles. Used with prettify.js. minified in one line */
+.pln{color:#000}@media screen{.str{color:#080}.kwd{color:#008}.com{color:#800}.typ{color:#606}.lit{color:#066}.pun,.opn,.clo{color:#660}.tag{color:#008}.atn{color:#606}.atv{color:#080}.dec,.var{color:#606}.fun{color:red}}@media print,projection{.str{color:#060}.kwd{color:#006;font-weight:bold}.com{color:#600;font-style:italic}.typ{color:#404;font-weight:bold}.lit{color:#044}.pun,.opn,.clo{color:#440}.tag{color:#006;font-weight:bold}.atn{color:#404}.atv{color:#060}}pre.prettyprint{padding:2px;border:1px solid #888}ol.linenums{margin-top:0;margin-bottom:0}li.L0,li.L1,li.L2,li.L3,li.L5,li.L6,li.L7,li.L8{list-style-type:none}li.L1,li.L3,li.L5,li.L7,li.L9{background:#eee}
 
-@media print {
-    pre {
-        .str { color: #060; }
-        .kwd { color: #006; font-weight: bold; }
-        .com { color: #600; font-style: italic; }
-        .typ { color: #404; font-weight: bold; }
-        .lit { color: #044; }
-        .pun { color: #440; }
-        .pln { color: #000; }
-        .tag { color: #006; font-weight: bold; }
-        .atn { color: #404; }
-        .atv { color: #060; }
-    }
-}
 
 #leading-sidebar {
     float: left;
@@ -3865,24 +4028,12 @@ pre.prettyprint { clear:both;padding: 3px; border: 0px solid #888; }
 /* language-specific fixes */
 body.lang-es {
     #searchBar {
-        width: 398px;
-        .searchInput {
-            width: 337px;
-        }
-        .searchInputCancelable {
-            width: 302px;
-        }
+        /* need special left padding */
     }
 }
 body.anon.lang-es {
     #searchBar {
-        width: 485px;
-        .searchInput {
-            width: 425px;
-        }
-        .searchInputCancelable {
-            width: 390px;
-        }
+        /* need special left padding */
     }
 }
 
@@ -4059,7 +4210,7 @@ textarea.tipped-input {
 
 .editor-status {
     float: right;
-    margin: 7px 350px 0 0;
+    margin: 8px 350px 0 0;
     font-weight: bold;
 
     span {
@@ -4112,4 +4263,206 @@ textarea.tipped-input {
 .modal-body > textarea {
     width: 515px;
     margin-bottom: 0px;
+}
+
+/* modifications for small screens */
+@media screen and (max-width: 960px) {/* content margins touch viewport */
+    #homeButton {
+        .sprites(1px,-36px);
+    }
+    #homeButton:hover {
+        .sprites(-44px,-36px);
+    }
+}
+@media screen and (max-width: 480px) {
+    .content-wrapper {
+        width: 100%;
+    }
+    #ContentRight {
+        display: none;
+    }
+    #ContentLeft {
+        width: 100%;
+    }
+    .main-page h1,
+    #askButton,
+    #metaNav #navBadges,
+    .user-info,
+    .copyright,
+    .counts .views,
+    .counts .votes,
+    .help,
+    .rss,
+    .scope-selector,
+    .settings,
+    .tabBar,
+    .tags,
+    .userinfo,
+    .widgets {
+        display: none;
+    }
+
+    .ask-page,
+    .edit-question-page {
+        input[type="submit"].searchBtn {
+            display: none;
+        }
+    }
+
+    .ask-page,
+    .edit-answer-page,
+    .edit-question-page {
+        .preview-toggle,
+        .proxy-user-info,
+        .answer-options,
+        .question-options,
+        .revision-comment,
+        .wmd-preview,
+        #wmd-hr-button,
+        #wmd-heading-button {
+            display: none;
+        }
+    }
+
+    .edit-answer-page,
+    .edit-question-page {
+        label[for="id_title"],
+        label[for="id_revision"],
+        #id_revision {
+            display: none;
+        }
+        #fmedit #id_title {
+            margin: 15px 0 0 0;
+        }
+    }
+
+    .question-page {
+        .comment-votes {
+            display: none;
+        }
+        .comments {
+            form.post-comments {
+                margin: 0 10px 0 0;
+            }
+            .comment .comment-body {
+                margin-left: 5px;
+            }
+        }
+        .post-update-info-container {
+            float: none;
+            width: 100%;
+        }
+        .post-update-info {
+            float: none;
+            margin-left: 0;
+            width: 100%-5;
+
+            br,
+            .badge1,
+            .badge2,
+            .badge3,
+            .gravatar,
+            .reputation-score,
+            .badge-count {
+                display: none;
+            }
+        }
+        .question-content,
+        ul.post-retag input {
+            width: 100%-12;
+        }
+        .answer-table,
+        #question-table {
+            width: 100%-15;
+        }
+    }
+
+    .users-page {
+        .userList td {
+            display: block;
+            width: 100%;
+            .user {
+                width: 100%;
+            }
+        }
+    }
+
+    .user-profile-page {
+        td {
+            display: block;
+        }
+    }
+
+    .footer-links,
+    .powered-link {
+        text-align: center;
+        width: 100%;
+    }
+
+    #userToolsNav {
+        margin-left: 10px;
+    }
+
+    #metaNav {
+        float: left;
+        a#navUsers,
+        a#navTags,
+        a#navGroups {
+            background: none;
+            color: #d0e296;
+            font-size: 16px;
+            text-decoration: underline;
+            margin-left: 20px;
+            padding-left: 0;
+        }
+    }
+    .powered-link {
+        margin-bottom: 15px;
+    }
+    .short-summary:first-child {
+        padding-top: 0;
+    }
+    #searchBar,
+    body.anon #searchBar {
+        margin: -49px 8px 0 52px;
+    }
+    .search-drop-menu,
+    body.anon .search-drop-menu {
+        margin: 0 8px 0 52px;
+    }
+    input[type="submit"].searchBtn {
+        margin-right: 8px;
+    }
+    .short-summary {
+        width: 100%;
+    }
+}
+
+.tag-subscriptions {
+    border-spacing: 10px;
+    border-collapse: separate;
+
+    button {
+        .button-style(27px, 14px);
+    }
+
+    form {
+        display: inline-block;
+        margin-bottom: 0;
+    }
+
+    td {
+        vertical-align: middle;
+    }
+
+    .action {
+        cursor: pointer;
+        color: #4A757F;
+        font-family: 'Open Sans Condensed', Arial, sans-serif;
+        text-decoration: none;
+    }
+
+    ul.tags li {
+        margin: 2px 5px;
+    }
 }

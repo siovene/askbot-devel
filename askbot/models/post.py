@@ -7,13 +7,14 @@ import logging
 from django.utils.html import strip_tags
 from django.contrib.sitemaps import ping_google
 from django.utils import html
-from django.conf import settings
+from django.conf import settings as django_settings
 from django.contrib.auth.models import User
 from django.core import urlresolvers
 from django.db import models
 from django.utils import html as html_utils
+from django.utils.translation import activate as activate_language
+from django.utils.translation import get_language
 from django.utils.translation import ugettext as _
-from django.utils.translation import ungettext
 from django.utils.http import urlquote as django_urlquote
 from django.core import exceptions as django_exceptions
 from django.core import cache
@@ -79,11 +80,11 @@ class PostQuerySet(models.query.QuerySet):
             | models.Q(thread__posts__text__icontains = search_query, thread__posts__post_type='answer')
         )
 #        #todo - goes to thread - we search whole threads
-#        if getattr(settings, 'USE_SPHINX_SEARCH', False):
+#        if getattr(django_settings, 'USE_SPHINX_SEARCH', False):
 #            matching_questions = Question.sphinx_search.query(search_query)
 #            question_ids = [q.id for q in matching_questions]
 #            return Question.objects.filter(deleted = False, id__in = question_ids)
-#        if settings.DATABASE_ENGINE == 'mysql' and mysql.supports_full_text_search():
+#        if django_settings.DATABASE_ENGINE == 'mysql' and mysql.supports_full_text_search():
 #            return self.filter(
 #                models.Q(thread__title__search = search_query)\
 #                | models.Q(text__search = search_query)\
@@ -205,14 +206,20 @@ class PostManager(BaseQuerySetManager):
 
         assert(post_type in const.POST_TYPES)
 
+        if thread:
+            language_code = thread.language_code
+        else:
+            language_code = get_language()
+
         post = Post(
-            post_type = post_type,
-            thread = thread,
-            parent = parent,
-            author = author,
-            added_at = added_at,
-            wiki = wiki,
-            text = text,
+            post_type=post_type,
+            thread=thread,
+            parent=parent,
+            author=author,
+            added_at=added_at,
+            wiki=wiki,
+            text=text,
+            language_code=language_code
             #.html field is denormalized by the save() call
         )
 
@@ -243,7 +250,7 @@ class PostManager(BaseQuerySetManager):
             author = author,
             revised_at = added_at,
             text = text,
-            comment = const.POST_STATUS['default_version'],
+            comment = unicode(const.POST_STATUS['default_version']),
             by_email = by_email
         )
 
@@ -370,6 +377,7 @@ class Post(models.Model):
 
     html = models.TextField(null=True)#html rendition of the latest revision
     text = models.TextField(null=True)#denormalized copy of latest revision
+    language_code = models.CharField(max_length=16, default=django_settings.LANGUAGE_CODE)
 
     # Denormalised data
     summary = models.TextField(null=True)
@@ -416,11 +424,11 @@ class Post(models.Model):
 
         if self.post_type in ('question', 'answer', 'tag_wiki', 'reject_reason'):
             _urlize = False
-            _use_markdown = True
+            _use_markdown = (askbot_settings.EDITOR_TYPE == 'markdown')
             _escape_html = False #markdow does the escaping
         elif self.is_comment():
             _urlize = True
-            _use_markdown = True
+            _use_markdown = (askbot_settings.EDITOR_TYPE == 'markdown')
             _escape_html = True
         else:
             raise NotImplementedError
@@ -573,6 +581,11 @@ class Post(models.Model):
     def is_reject_reason(self):
         return self.post_type == 'reject_reason'
 
+    def get_last_edited_date(self):
+        """returns date of last edit or date of creation
+        if there were no edits"""
+        return self.last_edited_at or self.added_at
+
     def get_moderators(self):
         """returns query set of users who are site administrators
         and moderators"""
@@ -580,6 +593,28 @@ class Post(models.Model):
         if askbot_settings.GROUPS_ENABLED:
             user_filter = user_filter & models.Q(groups__in=self.groups.all())
         return User.objects.filter(user_filter)
+
+    def get_previous_answer(self, user=None):
+        """returns a previous answer to a given answer;
+        only works on the "answer" post types"""
+        assert(self.post_type == 'answer')
+        all_answers = self.thread.get_answers(user=user)
+
+        matching_answers = all_answers.filter(
+                        added_at__lt=self.added_at,
+                    ).order_by('-added_at')
+
+        if len(matching_answers) == 0:
+            return None
+
+        answer = matching_answers[0]
+
+        if answer.id == self.id:
+            return None
+        if answer.added_at > self.added_at:
+            return None
+
+        return answer
 
     def has_group(self, group):
         """true if post belongs to the group"""
@@ -668,18 +703,18 @@ class Post(models.Model):
                     notify_sets['for_email'] = \
                         [u for u in notify_sets['for_email'] if u.is_administrator()]
 
-        if not settings.CELERY_ALWAYS_EAGER:
+        if not django_settings.CELERY_ALWAYS_EAGER:
             cache_key = 'instant-notification-%d-%d' % (self.thread.id, updated_by.id)
             if cache.cache.get(cache_key):
                 return
-            cache.cache.set(cache_key, True, settings.NOTIFICATION_DELAY_TIME)
+            cache.cache.set(cache_key, True, django_settings.NOTIFICATION_DELAY_TIME)
 
         from askbot.tasks import send_instant_notifications_about_activity_in_post
         send_instant_notifications_about_activity_in_post.apply_async((
                                 update_activity,
                                 self,
                                 notify_sets['for_email']),
-                                countdown = settings.NOTIFICATION_DELAY_TIME
+                                countdown = django_settings.NOTIFICATION_DELAY_TIME
                             )
 
     def make_private(self, user, group_id=None):
@@ -742,10 +777,16 @@ class Post(models.Model):
         #the trailing slash is entered in three places here + in urls.py
         if not hasattr(self, '_thread_cache') and thread:
             self._thread_cache = thread
+
+        is_multilingual = getattr(django_settings, 'ASKBOT_MULTILINGUAL', False)
+        if is_multilingual:
+            request_language = get_language()
+            activate_language(self.thread.language_code)
+
         if self.is_answer():
             if not question_post:
                 question_post = self.thread._question_post()
-            return u'%(base)s%(slug)s/?answer=%(id)d#post-id-%(id)d' % {
+            url = u'%(base)s%(slug)s/?answer=%(id)d#post-id-%(id)d' % {
                 'base': urlresolvers.reverse('question', args=[question_post.id]),
                 'slug': django_urlquote(slugify(self.thread.title)),
                 'id': self.id
@@ -756,13 +797,17 @@ class Post(models.Model):
                 url += django_urlquote(slugify(thread.title)) + '/'
             elif no_slug is False:
                 url += django_urlquote(self.slug) + '/'
-            return url
         elif self.is_comment():
             origin_post = self.get_origin_post()
-            return '%(url)s?comment=%(id)d#comment-%(id)d' % \
+            url = '%(url)s?comment=%(id)d#comment-%(id)d' % \
                 {'url': origin_post.get_absolute_url(thread=thread), 'id':self.id}
+        else:
+            raise NotImplementedError
 
-        raise NotImplementedError
+        if is_multilingual:
+            activate_language(request_language)
+
+        return url
 
     def delete(self, **kwargs):
         """deletes comment and concomitant response activity
@@ -862,8 +907,8 @@ class Post(models.Model):
         if quote_level > 0, the post will be indented that number of times
         todo: move to views?
         """
-        from askbot.skins.loaders import get_template
         from django.template import Context
+        from django.template.loader import get_template
         template = get_template('email/quoted_post.html')
         data = {
             'post': self,
@@ -871,7 +916,7 @@ class Post(models.Model):
             'is_leaf_post': is_leaf_post,
             'format': format
         }
-        return template.render(Context(data))
+        return template.render(Context(data))#todo: set lang
 
     def format_for_email_as_parent_thread_summary(self):
         """format for email as summary of parent posts
@@ -895,10 +940,10 @@ class Post(models.Model):
         """outputs question or answer and all it's comments
         returns empty string for all other post types
         """
-        from askbot.skins.loaders import get_template
         from django.template import Context
+        from django.template.loader import get_template
         template = get_template('email/post_as_subthread.html')
-        return template.render(Context({'post': self}))
+        return template.render(Context({'post': self}))#todo: set lang
 
     def set_cached_comments(self, comments):
         """caches comments in the lifetime of the object
@@ -972,6 +1017,9 @@ class Post(models.Model):
         elif tag_mark_reason == 'bad':
             email_tag_filter_strategy = const.EXCLUDE_IGNORED
             user_set_getter = User.objects.exclude
+        elif tag_mark_reason == 'subscribed':
+            email_tag_filter_strategy = const.INCLUDE_SUBSCRIBED
+            user_set_getter = User.objects.filter
         else:
             raise ValueError('Uknown value of tag mark reason %s' % tag_mark_reason)
 
@@ -1005,6 +1053,10 @@ class Post(models.Model):
                 empty_wildcard_filter = {'ignored_tags__exact': ''}
                 wildcard_tags_attribute = 'ignored_tags'
                 update_subscribers = lambda the_set, item: the_set.discard(item)
+            elif tag_mark_reason == 'subscribed':
+                empty_wildcard_filter = {'subscribed_tags__exact': ''}
+                wildcard_tags_attribute = 'subscribed_tags'
+                update_subscribers = lambda the_set, item: the_set.add(item)
 
             potential_wildcard_subscribers = User.objects.filter(
                 notification_subscriptions__in = subscription_records
@@ -1043,15 +1095,23 @@ class Post(models.Model):
 
         #segment of users who have tag filter turned off
         global_subscribers = User.objects.filter(
-            email_tag_filter_strategy = const.INCLUDE_ALL
+            models.Q(email_tag_filter_strategy=const.INCLUDE_ALL)
+            & models.Q(
+                notification_subscriptions__feed_type='q_all',
+                notification_subscriptions__frequency='i'
+            )
         )
         subscriber_set.update(global_subscribers)
 
         #segment of users who want emails on selected questions only
+        if askbot_settings.SUBSCRIBED_TAG_SELECTOR_ENABLED:
+            good_mark_reason = 'subscribed'
+        else:
+            good_mark_reason = 'good'
         subscriber_set.update(
             self.get_global_tag_based_subscribers(
                 subscription_records = global_subscriptions,
-                tag_mark_reason = 'good'
+                tag_mark_reason = good_mark_reason
             )
         )
 
@@ -1253,10 +1313,22 @@ class Post(models.Model):
 
         #if askbot_settings.GROUPS_ENABLED and self.is_effectively_private():
         #    for subscriber in subscribers:
-        return self.filter_authorized_users(subscribers)
+        subscribers = self.filter_authorized_users(subscribers)
+
+        #filter subscribers by language
+        if getattr(django_settings, 'ASKBOT_MULTILINGUAL', False):
+            language = self.thread.language_code
+            filtered_subscribers = list()
+            for subscriber in subscribers:
+                subscriber_languages = subscriber.languages.split()
+                if language in subscriber_languages:
+                    filtered_subscribers.append(subscriber)
+            return filtered_subscribers
+        else:
+            return subscribers
 
     def get_notify_sets(self, mentioned_users=None, exclude_list=None):
-        """returns three lists in a dictionary with keys:
+        """returns three lists of users in a dictionary with keys:
         * 'for_inbox' - users for which to add inbox items
         * 'for_mentions' - for whom mentions are added
         * 'for_email' - to whom email notifications should be sent
@@ -1759,7 +1831,7 @@ class Post(models.Model):
         rev_no = self.revisions.all().count() + 1
         if comment in (None, ''):
             if rev_no == 1:
-                comment = const.POST_STATUS['default_version']
+                comment = unicode(const.POST_STATUS['default_version'])
             else:
                 comment = 'No.%s Revision' % rev_no
         return PostRevision.objects.create(
@@ -1787,22 +1859,22 @@ class Post(models.Model):
         rev_no = self.revisions.all().count() + 1
         if comment in (None, ''):
             if rev_no == 1:
-                comment = const.POST_STATUS['default_version']
+                comment = unicode(const.POST_STATUS['default_version'])
             else:
                 comment = 'No.%s Revision' % rev_no
 
         return PostRevision.objects.create(
-            post = self,
-            revision   = rev_no,
-            title      = self.thread.title,
-            author     = author,
-            is_anonymous = is_anonymous,
-            revised_at = revised_at,
-            tagnames   = self.thread.tagnames,
-            summary    = comment,
-            text       = text,
-            by_email = by_email,
-            email_address = email_address
+            post=self,
+            revision=rev_no,
+            title=self.thread.title,
+            author=author,
+            is_anonymous=is_anonymous,
+            revised_at=revised_at,
+            tagnames=self.thread.tagnames,
+            summary=unicode(comment),
+            text=text,
+            by_email=by_email,
+            email_address=email_address
         )
 
     def add_revision(self, *kargs, **kwargs):
@@ -1901,7 +1973,7 @@ class Post(models.Model):
             else:
                 attr = None
             if attr is not None:
-                return u'%s %s' % (self.thread.title, attr)
+                return u'%s %s' % (self.thread.title, unicode(attr))
             else:
                 return self.thread.title
         raise NotImplementedError
@@ -2133,12 +2205,24 @@ class PostRevision(models.Model):
         super(PostRevision, self).save(**kwargs)
 
     def get_absolute_url(self):
+
+        is_multilingual = getattr(django_settings, 'ASKBOT_MULTILINGUAL', False)
+
+        if is_multilingual:
+            request_language = get_language()
+            activate_language(self.post.thread.language_code)
+
         if self.post.is_question():
-            return reverse('question_revisions', args = (self.post.id,))
+            url = reverse('question_revisions', args = (self.post.id,))
         elif self.post.is_answer():
-            return reverse('answer_revisions', kwargs = {'id':self.post.id})
+            url = reverse('answer_revisions', kwargs = {'id':self.post.id})
         else:
-            return self.post.get_absolute_url()
+            url = self.post.get_absolute_url()
+
+        if is_multilingual:
+            activate_language(request_language)
+
+        return url
 
     def get_question_title(self):
         #INFO: ack-grepping shows that it's only used for Questions, so there's no code for Answers

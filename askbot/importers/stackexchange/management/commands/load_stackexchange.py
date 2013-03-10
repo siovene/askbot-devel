@@ -1,11 +1,12 @@
 #todo: http://stackoverflow.com/questions/837828/how-to-use-a-slug-in-django 
-DEBUGME = False 
+DEBUGME = False
 import os
 import re
 import sys
 from unidecode import unidecode
 import zipfile
 from datetime import datetime
+from django.conf import settings as django_settings
 from django.core.management.base import BaseCommand, CommandError
 import askbot.importers.stackexchange.parse_models as se_parser
 from xml.etree import ElementTree as et
@@ -17,11 +18,18 @@ import askbot.deps.django_authopenid.models as askbot_openid
 import askbot.importers.stackexchange.models as se
 from askbot.forms import EditUserEmailFeedsForm
 from askbot.conf import settings as askbot_settings
-from django.contrib.auth.models import Message as DjangoMessage
-from django.utils.translation import ugettext as _
+
+try:
+    from django.contrib.auth.models import Message as DjangoMessage
+except ImportError:
+    from askbot.models.message import Message as DjangoMessage
+
+from django.utils.translation import ugettext_lazy as _
+from askbot.utils.console import ProgressBar
 from askbot.utils.slug import slugify
 from askbot.models.badges import award_badges_signal, award_badges
 from askbot.importers.stackexchange.management import is_ready as importer_is_ready
+from optparse import make_option
 #from markdown2 import Markdown
 #markdowner = Markdown(html4tags=True)
 
@@ -30,7 +38,8 @@ if DEBUGME == True:
     from askbot.utils import dummy_transaction as transaction
     HEAP = hpy()
 else:
-    from django.db import transaction
+    #from django.db import transaction
+    from askbot.utils import dummy_transaction as transaction
 
 xml_read_order = (
         'VoteTypes','UserTypes','Users','Users2Votes',
@@ -154,12 +163,12 @@ class X(object):#
         #or use database to store these associations
         try:
             if isinstance(se_post, se.PostComment):
-                return askbot.Comment.objects.get(id=COMMENT[se_post.id].id)
+                return askbot.Post.objects.get(id=COMMENT[se_post.id].id)
             post_type = se_post.post_type.name
             if post_type == 'Question':
-                return askbot.Question.objects.get(id=QUESTION[se_post.id].id)
+                return askbot.Post.objects.get(id=QUESTION[se_post.id].id)
             elif post_type == 'Answer':
-                return askbot.Answer.objects.get(id=ANSWER[se_post.id].id)
+                return askbot.Post.objects.get(id=ANSWER[se_post.id].id)
             else:
                 raise Exception('unknown post type %s' % post_type)
         except KeyError:
@@ -280,11 +289,45 @@ class X(object):#
         return slugify(cls.badge_exceptions.get(name, name).lower())
 
 class Command(BaseCommand):
-    help = 'Loads StackExchange data from unzipped directory of XML files into the ASKBOT database'
+    help = """Loads StackExchange data from SE dump .zip file
+it may be helpful to split this procedure in two:\n
+* read the dump (with option --read-se-dump)
+* transfer data to askbot (with option --process-data)
+"""
     args = 'se_dump_dir'
+
+    option_list = BaseCommand.option_list + (
+        make_option('-r', '--read-dump',
+            action='store_true',
+            dest='read_dump',
+            default=False,
+            help='Only read the the dump'
+        ),
+        make_option('-p', '--process-data',
+            action='store_true',
+            dest='process_data',
+            default=False,
+            help='Only process the data, assuming that the dump is loaded'
+        )
+    )
 
     @transaction.commit_manually
     def handle(self, *arg, **kwarg):
+
+        if django_settings.DEBUG:
+            raise CommandError(
+                'Please set DEBUG to False in the settings.py to reduce '
+                'RAM usage during the import process'
+            )
+
+        #process the command line arguments, if given
+        if kwarg['read_dump'] is False and kwarg['process_data'] is False:
+            #make them both true as a hack to simulate a condition where
+            #no flags selected means the same as both are indeed selected
+            kwarg['read_dump'] = True
+            kwarg['process_data'] = True
+
+        askbot_settings.update('LIMIT_ONE_ANSWER_PER_USER', False)
 
         if not importer_is_ready():
             raise CommandError(
@@ -299,16 +342,23 @@ class Command(BaseCommand):
         if len(arg) < 1 or not os.path.isfile(arg[0]):
             raise CommandError('Error: first argument must be a zip file with the SE forum data')
 
-        self.zipfile = self.open_dump(arg[0]) 
-        #read the data into SE tables
-        for item in xml_read_order:
-            time_before = datetime.now()
-            self.load_xml_file(item)
-            transaction.commit()
-            time_after = datetime.now()
-            if DEBUGME == True:
-                print time_after - time_before
-                print HEAP.heap()
+        if kwarg['read_dump']:
+            self.zipfile = self.open_dump(arg[0]) 
+            #read the data into SE tables
+            for item in xml_read_order:
+                time_before = datetime.now()
+                self.load_xml_file(item)
+                transaction.commit()
+                time_after = datetime.now()
+                if DEBUGME == True:
+                    print time_after - time_before
+                    print HEAP.heap()
+
+        if kwarg['process_data'] is False:
+            #that means we just wanted to load the xml dump to
+            #do the second step in another go in order to have
+            #more ram for the transfer of data from SE to Askbot databases
+            return
 
         #this is important so that when we clean up messages
         #automatically generated by the procedures below
@@ -320,36 +370,36 @@ class Command(BaseCommand):
         self.save_askbot_message_id_list()
 
         #transfer data into ASKBOT tables
-        print 'Transferring users...',
+        print 'Transferring users...'
         self.transfer_users()
         transaction.commit()
         print 'done.'
-        print 'Transferring content edits...',
+        print 'Transferring content edits...'
         sys.stdout.flush()
         self.transfer_question_and_answer_activity()
         transaction.commit()
         print 'done.'
-        print 'Transferring view counts...',
+        print 'Transferring view counts...'
         sys.stdout.flush()
         self.transfer_question_view_counts()
         transaction.commit()
         print 'done.'
-        print 'Transferring comments...',
+        print 'Transferring comments...'
         sys.stdout.flush()
         self.transfer_comments()
         transaction.commit()
         print 'done.'
-        print 'Transferring badges and badge awards...',
+        print 'Transferring badges and badge awards...'
         sys.stdout.flush()
         self.transfer_badges()
         transaction.commit()
         print 'done.'
-        print 'Transferring Q&A votes...',
+        print 'Transferring Q&A votes...'
         sys.stdout.flush()
         self.transfer_QA_votes()#includes favorites, accepts and flags
         transaction.commit()
         print 'done.'
-        print 'Transferring comment votes...',
+        print 'Transferring comment votes...'
         sys.stdout.flush()
         self.transfer_comment_votes()
         transaction.commit()
@@ -396,7 +446,8 @@ class Command(BaseCommand):
         """transfers some messages from
         SE to ASKBOT
         """
-        for m in se.Message.objects.all().iterator():
+        messages = se.Message.objects.all()
+        for m in ProgressBar(messages.iterator(), messages.count()):
             if m.is_read:
                 continue
             if m.user is None:
@@ -522,10 +573,7 @@ class Command(BaseCommand):
     def mark_activity(self,p,u,t):
         """p,u,t - post, user, timestamp
         """
-        if isinstance(p, askbot.Question):
-            p.thread.set_last_activity(last_activity_by=u, last_activity_at=t)
-        elif isinstance(p, askbot.Answer):
-            p.question.thread.set_last_activity(last_activity_by=u, last_activity_at=t)
+        p.thread.set_last_activity(last_activity_by=u, last_activity_at=t)
 
     def _process_post_rollback_revision_group(self, rev_group):
         #todo: don't know what to do here as there were no
@@ -647,7 +695,9 @@ class Command(BaseCommand):
         c_group = []
         #this loop groups revisions by revision id, then calls process function
         #for the revision grup (elementary revisions posted at once)
-        for se_rev in se_revs.iterator():
+        message = 'Processing revisions'
+        count = se_revs.count()
+        for se_rev in ProgressBar(se_revs.iterator(), count, message):
             if se_rev.revision_guid == c_guid:
                 c_group.append(se_rev)
             else:
@@ -660,7 +710,8 @@ class Command(BaseCommand):
             self._process_post_revision_group(c_group)
 
     def transfer_comments(self):
-        for se_c in se.PostComment.objects.all().iterator():
+        comments = se.PostComment.objects.all()
+        for se_c in ProgressBar(comments.iterator(), comments.count()):
             if se_c.deletion_date:
                 print 'Warning deleted comment %d dropped' % se_c.id
                 sys.stdout.flush()
@@ -683,7 +734,9 @@ class Command(BaseCommand):
 
     def _collect_missing_badges(self):
         self._missing_badges = {}
-        for se_b in se.Badge.objects.all():
+        badges = se.Badge.objects.all()
+        message = 'Collecting missing badges'
+        for se_b in ProgressBar(badges.iterator(), badges.count(), message):
             name = X.get_badge_name(se_b.name)
             try:
                 #todo: query badge from askbot.models.badges
@@ -700,7 +753,9 @@ class Command(BaseCommand):
     def _award_badges(self):
         #note: SE does not keep information on
         #content-related badges like askbot does
-        for se_a in se.User2Badge.objects.all().iterator():
+        badges = se.User2Badge.objects.all()
+        message = 'Awarding badges'
+        for se_a in ProgressBar(badges.iterator(), badges.count(), message):
             if se_a.user.id == -1:
                 continue #skip community user
             u = USER[se_a.user.id]
@@ -743,7 +798,8 @@ class Command(BaseCommand):
         pass
 
     def transfer_question_view_counts(self):
-        for se_q in se.Post.objects.filter(post_type__name='Question').iterator():
+        questions = se.Post.objects.filter(post_type__name='Question')
+        for se_q in ProgressBar(questions.iterator(), questions.count()):
             q = X.get_post(se_q)
             if q is None:
                 continue
@@ -752,7 +808,8 @@ class Command(BaseCommand):
 
 
     def transfer_QA_votes(self):
-        for v in se.Post2Vote.objects.all().iterator():
+        votes = se.Post2Vote.objects.all()
+        for v in ProgressBar(votes.iterator(), votes.count()):
             vote_type = v.vote_type.name
             if not vote_type in X.vote_actions:
                 continue
@@ -779,7 +836,8 @@ class Command(BaseCommand):
             transaction.commit()
 
     def transfer_comment_votes(self):
-        for v in se.Comment2Vote.objects.all().iterator():
+        votes = se.Comment2Vote.objects.all()
+        for v in ProgressBar(votes.iterator(), votes.count()):
             vote_type = v.vote_type.name
             if vote_type not in ('UpMod', 'Offensive'):
                 continue
@@ -822,10 +880,11 @@ class Command(BaseCommand):
         xml_data = self.zipfile.read(xml_path)
 
         tree = et.fromstring(xml_data)
-        print 'loading from %s to %s' % (xml_path, table_name) ,
+        print 'loading from %s to %s' % (xml_path, table_name)
         model = models.get_model('stackexchange', table_name)
         i = 0
-        for row in tree.findall('.//row'):
+        rows = tree.findall('.//row')
+        for row in ProgressBar(iter(rows), len(rows)):
             model_entry = model()
             i += 1
             for col in row.getchildren():
@@ -849,7 +908,8 @@ class Command(BaseCommand):
         return xml_file_basename + '.xml'
 
     def transfer_users(self):
-        for se_u in se.User.objects.all().iterator():
+        se_users = se.User.objects.all()
+        for se_u in ProgressBar(se_users.iterator(), se_users.count()):
             #if se_u.id == -1:#skip the Community user
             #    continue
             u = askbot.User()

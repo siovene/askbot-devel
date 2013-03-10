@@ -5,7 +5,7 @@
 <h1>Are you sure that you cant to delete this {{widget_name|capitalize}}Widget?</h1>
 <br/>
 <strong>Warning: This could break the widgets on sites that currently use this widget please make sure that you don't use the widget in other sites</strong>
-<form action="." method="POST">
+<form action="." method="POST">{% csrf_token %}
   <p><input type='submit' value='Delete' /> <a href="{% url list_widgets widget_name %}">Go Back</a></p>
 </form>
 {% endblock %}

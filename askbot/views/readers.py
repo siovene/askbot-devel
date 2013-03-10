@@ -11,9 +11,11 @@ import logging
 import urllib
 import operator
 from django.shortcuts import get_object_or_404
+from django.shortcuts import render
 from django.http import HttpResponseRedirect, HttpResponse, Http404, HttpResponseNotAllowed
 from django.core.paginator import Paginator, EmptyPage, InvalidPage
-from django.template import Context
+from django.template.loader import get_template
+from django.template import RequestContext
 from django.utils import simplejson
 from django.utils.html import escape
 from django.utils.translation import ugettext as _
@@ -24,7 +26,7 @@ from django.core.urlresolvers import reverse
 from django.core import exceptions as django_exceptions
 from django.contrib.humanize.templatetags import humanize
 from django.http import QueryDict
-from django.conf import settings
+from django.conf import settings as django_settings
 
 import askbot
 from askbot import exceptions
@@ -41,7 +43,6 @@ from askbot.utils.decorators import anonymous_forbidden, ajax_only, get_only
 from askbot.search.state_manager import SearchState, DummySearchState
 from askbot.templatetags import extra_tags
 from askbot.conf import settings as askbot_settings
-from askbot.skins.loaders import render_into_skin, get_template #jinja2 template loading enviroment
 from askbot.views import context
 
 # used in index page
@@ -140,7 +141,10 @@ def questions(request, **kwargs):
         # We have tags in session - pass it to the
         # QueryDict but as a list - we want tags+
         rss_query_dict.setlist("tags", search_state.tags)
-    context_feed_url = '/%sfeeds/rss/?%s' % (settings.ASKBOT_URL, rss_query_dict.urlencode()) # Format the url with the QueryDict
+    context_feed_url = '/%sfeeds/rss/?%s' % (
+                            django_settings.ASKBOT_URL,
+                            rss_query_dict.urlencode()
+                        ) # Format the url with the QueryDict
 
     reset_method_count = len(filter(None, [search_state.query, search_state.tags, meta_data.get('author_name', None)]))
 
@@ -151,23 +155,31 @@ def questions(request, **kwargs):
         question_counter = question_counter % {'q_num': humanize.intcomma(q_count),}
 
         if q_count > page_size:
-            paginator_tpl = get_template('main_page/paginator.html', request)
-            paginator_html = paginator_tpl.render(Context({
-                'context': functions.setup_paginator(paginator_context),
-                'questions_count': q_count,
-                'page_size' : page_size,
-                'search_state': search_state,
-            }))
+            paginator_tpl = get_template('main_page/paginator.html')
+            paginator_html = paginator_tpl.render(
+                RequestContext(
+                    request, {
+                        'context': functions.setup_paginator(paginator_context),
+                        'questions_count': q_count,
+                        'page_size' : page_size,
+                        'search_state': search_state,
+                    }
+                )
+            )
         else:
             paginator_html = ''
 
-        questions_tpl = get_template('main_page/questions_loop.html', request)
-        questions_html = questions_tpl.render(Context({
-            'threads': page,
-            'search_state': search_state,
-            'reset_method_count': reset_method_count,
-            'request': request
-        }))
+        questions_tpl = get_template('main_page/questions_loop.html')
+        questions_html = questions_tpl.render(
+            RequestContext(
+                request, {
+                    'threads': page,
+                    'search_state': search_state,
+                    'reset_method_count': reset_method_count,
+                    'request': request
+                }
+            )
+        )
 
         ajax_data = {
             'query_data': {
@@ -219,14 +231,14 @@ def questions(request, **kwargs):
             'tag_list_type' : tag_list_type,
             'font_size' : extra_tags.get_tag_font_size(related_tags),
             'display_tag_filter_strategy_choices': conf.get_tag_display_filter_strategy_choices(),
-            'email_tag_filter_strategy_choices': const.TAG_EMAIL_FILTER_STRATEGY_CHOICES,
+            'email_tag_filter_strategy_choices': conf.get_tag_email_filter_strategy_choices(),
             'update_avatar_data': schedules.should_update_avatar_data(request),
             'query_string': search_state.query_string(),
             'search_state': search_state,
             'feed_url': context_feed_url,
         }
 
-        return render_into_skin('main_page.html', template_data, request)
+        return render(request, 'main_page.html', template_data)
 
 
 def tags(request):#view showing a listing of available tags - plain list
@@ -316,10 +328,9 @@ def tags(request):#view showing a listing of available tags - plain list
             'search_state': SearchState(*[None for x in range(7)])
         }
 
-    return render_into_skin('tags.html', data, request)
+    return render(request, 'tags.html', data)
 
 @csrf.csrf_protect
-#@cache_page(60 * 5)
 def question(request, id):#refactor - long subroutine. display question body, answers and comments
     """view that displays body of the question and
     all answers to it
@@ -327,8 +338,7 @@ def question(request, id):#refactor - long subroutine. display question body, an
     #process url parameters
     #todo: fix inheritance of sort method from questions
     #before = datetime.datetime.now()
-    default_sort_method = request.session.get('questions_sort_method', 'votes')
-    form = ShowQuestionForm(request.GET, default_sort_method)
+    form = ShowQuestionForm(request.GET)
     form.full_clean()#always valid
     show_answer = form.cleaned_data['show_answer']
     show_comment = form.cleaned_data['show_comment']
@@ -439,6 +449,10 @@ def question(request, id):#refactor - long subroutine. display question body, an
             return HttpResponseRedirect(reverse('question', kwargs = {'id': id}))
 
     thread = question_post.thread
+
+    if getattr(django_settings, 'ASKBOT_MULTILINGUAL', False):
+        if thread.language_code != translation.get_language():
+            return HttpResponseRedirect(thread.get_absolute_url())
 
     logging.debug('answer_sort_method=' + unicode(answer_sort_method))
 
@@ -583,6 +597,7 @@ def question(request, id):#refactor - long subroutine. display question body, an
         'user_post_id_list': user_post_id_list,
         'user_can_post_comment': user_can_post_comment,#in general
         'user_already_gave_answer': user_already_gave_answer,
+        'oldest_answer_id': thread.get_oldest_answer_id(request.user),
         'previous_answer': previous_answer,
         'tab_id' : answer_sort_method,
         'favorited' : favorited,
@@ -599,7 +614,7 @@ def question(request, id):#refactor - long subroutine. display question body, an
 
     data.update(context.get_for_tag_editor())
 
-    return render_into_skin('question.html', data, request)
+    return render(request, 'question.html', data)
 
 def revisions(request, id, post_type = None):
     assert post_type in ('question', 'answer')
@@ -622,7 +637,7 @@ def revisions(request, id, post_type = None):
         'post': post,
         'revisions': revisions,
     }
-    return render_into_skin('revisions.html', data, request)
+    return render(request, 'revisions.html', data)
 
 @csrf.csrf_exempt
 @ajax_only

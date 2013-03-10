@@ -4,7 +4,7 @@ All constants could be used in other modules
 For reasons that models, views can't have unicode
 text in this project, all unicode text go here.
 """
-from django.utils.translation import ugettext as _
+from django.utils.translation import ugettext_lazy as _
 import re
 
 CLOSE_REASONS = (
@@ -317,11 +317,23 @@ TAG_DISPLAY_FILTER_STRATEGY_CHOICES = \
     TAG_DISPLAY_FILTER_STRATEGY_MINIMAL_CHOICES + \
     ((INCLUDE_SUBSCRIBED, _('only subscribed tags')),)
 
-
-TAG_EMAIL_FILTER_STRATEGY_CHOICES = (
+TAG_EMAIL_FILTER_SIMPLE_STRATEGY_CHOICES = (
     (INCLUDE_ALL, _('email for all tags')),
     (EXCLUDE_IGNORED, _('exclude ignored tags')),
-    (INCLUDE_INTERESTING, _('only subscribed tags')),
+    (INCLUDE_INTERESTING, _('only interesting tags')),
+)
+
+TAG_EMAIL_FILTER_ADVANCED_STRATEGY_CHOICES = (
+    (INCLUDE_ALL, _('email for all tags')),
+    (EXCLUDE_IGNORED, _('exclude ignored tags')),
+    (INCLUDE_SUBSCRIBED, _('only subscribed tags')),
+)
+
+TAG_EMAIL_FILTER_FULL_STRATEGY_CHOICES = (
+    (INCLUDE_ALL, _('email for all tags')),
+    (EXCLUDE_IGNORED, _('exclude ignored tags')),
+    (INCLUDE_INTERESTING, _('only interesting tags')),
+    (INCLUDE_SUBSCRIBED, _('only subscribed tags')),
 )
 
 NOTIFICATION_DELIVERY_SCHEDULE_CHOICES = (

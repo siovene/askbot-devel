@@ -7,12 +7,13 @@ question: why not run these from askbot/__init__.py?
 
 the main function is run_startup_tests
 """
-import sys
+import askbot
+import django
 import os
 import re
-import urllib
-import askbot
 import south
+import sys
+import urllib
 from django.db import transaction, connection
 from django.conf import settings as django_settings
 from django.core.exceptions import ImproperlyConfigured
@@ -44,7 +45,7 @@ class AskbotConfigError(ImproperlyConfigured):
 
 def askbot_warning(line):
     """prints a warning with the nice header, but does not quit"""
-    print >> sys.stderr, PREAMBLE + '\n' + line
+    print >> sys.stderr, line
 
 def print_errors(error_messages, header = None, footer = None):
     """if there is one or more error messages,
@@ -210,14 +211,28 @@ def test_encoding():
 def test_template_loader():
     """Sends a warning if you have an old style template
     loader that used to send a warning"""
-    old_template_loader = 'askbot.skins.loaders.load_template_source'
-    if old_template_loader in django_settings.TEMPLATE_LOADERS:
-        raise AskbotConfigError(
-                "\nPlease change: \n"
-                "'askbot.skins.loaders.load_template_source', to\n"
-                "'askbot.skins.loaders.filesystem_load_template_source',\n"
-                "in the TEMPLATE_LOADERS of your settings.py file"
+    old_loaders = (
+        'askbot.skins.loaders.load_template_source',
+        'askbot.skins.loaders.filesystem_load_template_source',
+    )
+    errors = list()
+    for loader in old_loaders:
+        if loader in django_settings.TEMPLATE_LOADERS:
+            errors.append(
+                'remove "%s" from the TEMPLATE_LOADERS setting' % loader
+            )
+
+    current_loader = 'askbot.skins.loaders.Loader'
+    if current_loader not in django_settings.TEMPLATE_LOADERS:
+        errors.append(
+            'add "%s" to the beginning of the TEMPLATE_LOADERS' % current_loader
         )
+    elif django_settings.TEMPLATE_LOADERS[0] != current_loader:
+        errors.append(
+            '"%s" must be the first element of TEMPLATE_LOADERS' % current_loader
+        )
+        
+    print_errors(errors)
 
 def test_celery():
     """Tests celery settings
@@ -348,7 +363,6 @@ def test_new_skins():
 def test_staticfiles():
     """tests configuration of the staticfiles app"""
     errors = list()
-    import django
     django_version = django.VERSION
     if django_version[0] == 1 and django_version[1] < 3:
         staticfiles_app_name = 'staticfiles'
@@ -457,7 +471,6 @@ def test_staticfiles():
             'Run command (after fixing the above errors)\n'
             '    python manage.py collectstatic\n'
         )
-
 
     print_errors(errors)
     if django_settings.STATICFILES_STORAGE == \
@@ -686,6 +699,143 @@ def test_longerusername():
         errors.append('run "python manage.py migrate longerusername"')
         print_errors(errors)
 
+def test_template_context_processors():
+    """makes sure that all necessary template context processors
+    are in the settings.py"""
+
+    required_processors = [
+        'django.core.context_processors.request',
+        'askbot.context.application_settings',
+        'askbot.user_messages.context_processors.user_messages',
+        'django.core.context_processors.csrf',
+    ]
+    old_auth_processor = 'django.core.context_processors.auth'
+    new_auth_processor = 'django.contrib.auth.context_processors.auth'
+
+    invalid_processors = list()
+    if django.VERSION[1] <= 3:
+        required_processors.append(old_auth_processor)
+        if new_auth_processor in django_settings.TEMPLATE_CONTEXT_PROCESSORS:
+            invalid_processors.append(new_auth_processor)
+    elif django.VERSION[1] > 3:
+        required_processors.append(new_auth_processor)
+        if old_auth_processor in django_settings.TEMPLATE_CONTEXT_PROCESSORS:
+            invalid_processors.append(old_auth_processor)
+            
+    missing_processors = list()
+    for processor in required_processors:
+        if processor not in django_settings.TEMPLATE_CONTEXT_PROCESSORS:
+            missing_processors.append(processor)
+
+    errors = list()
+    if invalid_processors:
+        message = 'remove from TEMPLATE_CONTEXT_PROCESSORS in settings.py:\n'
+        message += format_as_text_tuple_entries(invalid_processors)
+        errors.append(message)
+
+    if missing_processors:
+        message = 'add to TEMPLATE_CONTEXT_PROCESSORS in settings.py:\n'
+        message += format_as_text_tuple_entries(missing_processors)
+        errors.append(message)
+
+    print_errors(errors)
+
+
+def test_cache_backend():
+    """prints a warning if cache backend is disabled or per-process"""
+    if django.VERSION[1] > 2:
+        backend = django_settings.CACHES['default']['BACKEND']
+    else:
+        backend = django_settings.CACHE_BACKEND
+
+    errors = list()
+    if backend.strip() == '' or 'dummy' in backend:
+        message = """Please enable at least a "locmem" cache (for a single process server).
+If you need to run > 1 server process, set up some production caching system,
+such as redis or memcached"""
+        errors.append(message)
+
+    if 'locmem' in backend:
+        message = """WARNING!!! You are using a 'locmem' (local memory) caching backend,
+which is OK for a low volume site running on a single-process server.
+For a multi-process configuration it is neccessary to have a production
+cache system, such as redis or memcached.
+
+With local memory caching and multi-process setup you might intermittently
+see outdated content on your site.
+"""
+        askbot_warning(message)
+
+
+def test_group_messaging():
+    """tests correctness of the "group_messaging" app configuration"""
+    errors = list()
+    if 'group_messaging' not in django_settings.INSTALLED_APPS:
+        errors.append("add to the INSTALLED_APPS:\n'group_messaging'")
+
+    settings_sample = ("GROUP_MESSAGING = {\n"
+    "    'BASE_URL_GETTER_FUNCTION': 'askbot.models.user_get_profile_url',\n"
+    "    'BASE_URL_PARAMS': {'section': 'messages', 'sort': 'inbox'}\n"
+    "}")
+
+    settings = getattr(django_settings, 'GROUP_MESSAGING', {})
+    if settings:
+        url_params = settings.get('BASE_URL_PARAMS', {})
+        have_wrong_params = not (
+                        url_params.get('section', None) == 'messages' and \
+                        url_params.get('sort', None) == 'inbox'
+                    )
+        url_getter = settings.get('BASE_URL_GETTER_FUNCTION', None)
+        if url_getter != 'askbot.models.user_get_profile_url' or have_wrong_params:
+            errors.append(
+                "make setting 'GROUP_MESSAGING to be exactly:\n" + settings_sample
+            )
+            
+        url_params = settings.get('BASE_URL_PARAMS', None)
+    else:
+        errors.append('add this to your settings.py:\n' + settings_sample)
+
+    if errors:
+        print_errors(errors)
+
+
+def test_secret_key():
+    key = django_settings.SECRET_KEY
+    if key.strip() == '':
+        print_errors(['please create a random SECRET_KEY setting',])
+    elif key == 'sdljdfjkldsflsdjkhsjkldgjlsdgfs s ':
+        print_errors([
+            'Please change your SECRET_KEY setting, the current is not secure'
+        ])
+
+
+def test_multilingual():
+    is_multilang = getattr(django_settings, 'ASKBOT_MULTILINGUAL', False)
+
+    errors = list()
+
+    django_version = django.VERSION
+    if is_multilang and django_version[0] == 1 and django_version[1] < 4:
+        errors.append('ASKBOT_MULTILINGUAL=True works only with django >= 1.4')
+
+    if is_multilang:
+        middleware = 'django.middleware.locale.LocaleMiddleware' 
+        if middleware not in django_settings.MIDDLEWARE_CLASSES:
+            errors.append(
+                "add 'django.middleware.locale.LocaleMiddleware' to your MIDDLEWARE_CLASSES "
+                "if you want a multilingual setup"
+            )
+
+    trans_url = getattr(django_settings, 'ASKBOT_TRANSLATE_URL', False)
+    if is_multilang and trans_url:
+        errors.append(
+            'Please set ASKBOT_TRANSLATE_URL to False, the "True" option '
+            'is currently not supported due to a bug in django'
+        )
+
+    print_errors(errors)
+
+
 def run_startup_tests():
     """function that runs
     all startup tests, mainly checking settings config so far
@@ -700,12 +850,17 @@ def run_startup_tests():
     test_middleware()
     test_celery()
     #test_csrf_cookie_domain()
+    test_template_context_processors()
     test_tinymce()
     test_staticfiles()
     test_new_skins()
     test_longerusername()
     test_avatar()
+    test_group_messaging()
+    test_multilingual()
     test_haystack()
+    test_cache_backend()
+    test_secret_key()
     settings_tester = SettingsTester({
         'CACHE_MIDDLEWARE_ANONYMOUS_ONLY': {
             'value': True,

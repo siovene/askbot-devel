@@ -15,7 +15,43 @@
         /*<![CDATA[*/
         //below is pure cross-browser javascript, no jQuery
         askbot['data']['userIsThreadModerator'] = {% if user_is_thread_moderator %}true{% else %}false{% endif %};
+        askbot['data']['oldestAnswerId'] = {% if oldest_answer_id %}{{ oldest_answer_id }}{% else %}-1{% endif %};
         (function(){
+
+            var hasClass = function(node, selector) {
+                var classes = (" " + node.className + " ").split(' ');
+                for (var i = 0; i < classes.length; i++) {
+                    if (classes[i] === selector) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            var findChildrenByClassName = function(node, className) {
+                var nodes = [];
+                var walk = function(node) {
+                    if (hasClass(node, className)) {
+                        nodes.push(node);
+                    }
+                    if (node.childNodes) {
+                        for (var i=0; i < node.childNodes.length; i++) {
+                            walk(node.childNodes[i]);
+                        }
+                    }
+                };
+                walk(node);
+                return nodes;
+            };
+
+            var removeNode = function(node) {
+                node.parentNode.removeChild(node);
+            };
+
+            var trim = function(text) {
+                return text.replace(/^\s+|\s+$/g, '');
+            };
+
             var data = askbot['data'];
             if (data['userIsAuthenticated']){
                 var votes = {};
@@ -57,8 +93,12 @@
             }
 
             function hide_convert_answer_links(post_id){
-                var answer_convert_id = 'post-' + post_id + '-convert';
-                var convert_answer = document.getElementById(answer_convert_id);
+                var id1 = 'post-' + post_id + '-convert';//for repost as Q comment
+                var repostAsQuestionComment = document.getElementById(id1);
+                var id2 = 'post-' + post_id + '-repost-as-comment-under-previous-answer';
+                var repostAsPrevAnsComment = document.getElementById(id2);
+                var extraOptsList = repostAsQuestionComment.parentNode;
+                var extraOpts = extraOptsList.parentNode;
                 if (data['userIsAdminOrMod']){
                     var answer_id = 'post-id-' + post_id;
                     var answer_container = document.getElementById(answer_id);
@@ -67,7 +107,12 @@
                         convert_answer.parentNode.removeChild(convert_answer);
                     }
                 } else{
-                    convert_answer.parentNode.removeChild(convert_answer);
+                    repostAsQuestionComment.parentNode.removeChild(repostAsQuestionComment);
+                    repostAsPrevAnsComment.parentNode.removeChild(repostAsPrevAnsComment);
+                }
+
+                if (extraOptsList.getElementsByTagName('li').length === 0) {
+                    extraOpts.parentNode.removeChild(extraOpts);
                 }
             }
 
@@ -84,21 +129,21 @@
                 if (data['userIsAdminOrMod']){
                     return;//all remaining functions stay on
                 }
-                if (data['user_posts'] === undefined) {
+                if (data['user_posts'] && post_id in data['user_posts']){
+                    //todo: remove edit button from older comments
                     return;
                 }
-                if (post_id in data['user_posts']){
-                    //todo: remove edit button from older comments
-                    return;//same here
-                }
+                var deleteBtn = document.getElementById('post-' + post_id + '-delete');
+                var controls = deleteBtn.parentNode;
                 if (//maybe remove "delete" button
-                    data['userReputation'] < 
+                    data['userReputation'] <
                     {{settings.MIN_REP_TO_DELETE_OTHERS_COMMENTS}}
                 ) {
-                    var delete_btn = document.getElementById(
-                        'post-' + post_id + '-delete'
-                    );
-                    delete_btn.parentNode.removeChild(delete_btn);
+                    removeNode(deleteBtn);
+                }
+                var flags = findChildrenByClassName(controls, 'question-flag');
+                if (flags.length > 0) {
+                    removeNode(flags[0]);
                 }
                 if (//maybe remove "edit" button
                     data['userReputation'] <
@@ -113,8 +158,10 @@
                     data['userReputation'] <
                     {{settings.MIN_REP_TO_RETAG_OTHERS_QUESTIONS}}
                 ){
-                    var retag_btn = document.getElementById('retag');
-                    retag_btn.parentNode.removeChild(retag_btn);
+                    var retagBtn = document.getElementById('retag');
+                    if (retagBtn) {
+                        retagBtn.parentNode.removeChild(retagBtn);
+                    }
                 }
             }
             function render_add_comment_button(post_id, extra_comment_count){
@@ -140,10 +187,10 @@
                 var text = '';
                 if (extra_comment_count > 0){
                     if (can_add){
-                        text = 
+                        text =
         "{% trans %}post a comment / <strong>some</strong> more{% endtrans %}";
                     } else {
-                        text = 
+                        text =
         "{% trans %}see <strong>some</strong> more{% endtrans%}";
                     }
                 } else {
@@ -185,13 +232,13 @@
 
             function hide_convert_links(){
               if (!askbot['data']['userIsAdminOrMod']){
-                var links = document.querySelectorAll('.convert-comment');
+                var links = findChildrenByClassName(document, 'convert-comment');
                 for (i=0; i<links.length; i++){
                   links[i].setAttribute('style', 'display:none;');
                 }
               }
             }
-            
+
             askbot['functions'] = askbot['functions'] || {};
             askbot['functions']['renderPostVoteButtons'] = render_vote_buttons;
             askbot['functions']['renderPostControls'] = render_post_controls;
@@ -206,7 +253,7 @@
 {% endblock %}
 {% block content %}
     <div>
-        {{ settings.QUESTION_PAGE_TOP_BANNER }}
+        {{ settings.QUESTION_PAGE_TOP_BANNER|safe }}
     </div>
     {% if is_cacheable %}
         {% cache long_time "thread-content-html" thread.id %}

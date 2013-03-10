@@ -8,9 +8,12 @@ from django.contrib.auth.models import User
 from django.core import cache  # import cache, not from cache import cache, to be able to monkey-patch cache.cache in test cases
 from django.core import exceptions as django_exceptions
 from django.core.urlresolvers import reverse
+from django.template.loader import get_template
 from django.utils.hashcompat import md5_constructor
 from django.utils.translation import ugettext as _
 from django.utils.translation import ungettext
+from django.utils.translation import string_concat
+from django.utils.translation import get_language
 
 import askbot
 from askbot.conf import settings as askbot_settings
@@ -19,7 +22,7 @@ from askbot.mail import messages
 from askbot.models.tag import Tag
 from askbot.models.tag import get_tags_by_names
 from askbot.models.tag import filter_accepted_tags, filter_suggested_tags
-from askbot.models.tag import delete_tags, separate_unused_tags
+from askbot.models.tag import separate_unused_tags
 from askbot.models.base import DraftContent, BaseQuerySetManager
 from askbot.models.post import Post, PostRevision
 from askbot.models.post import PostToGroup
@@ -29,7 +32,6 @@ from askbot import const
 from askbot.utils.lists import LazyList
 from askbot.search import mysql
 from askbot.utils.slug import slugify
-from askbot.skins.loaders import get_template #jinja2 template loading enviroment
 from askbot.search.state_manager import DummySearchState
 
 class ThreadQuerySet(models.query.QuerySet):
@@ -40,6 +42,28 @@ class ThreadQuerySet(models.query.QuerySet):
         else:
             groups = [Group.objects.get_global_group()]
         return self.filter(groups__in=groups).distinct()
+
+    def get_for_title_query(self, search_query):
+        """returns threads matching title query
+        todo: possibly add tags
+        todo: implement full text search on relevant fields
+        """
+        db_engine_name = askbot.get_database_engine_name()
+        if 'postgresql_psycopg2' in db_engine_name:
+            from askbot.search import postgresql
+            return postgresql.run_title_search(
+                                    self, search_query
+                                ).order_by('-relevance')
+        elif 'mysql' in db_engine_name and mysql.supports_full_text_search():
+            filter_parameters = {'title__search': search_query}
+        else:
+            filter_parameters = {'title__icontains': search_query}
+
+        if getattr(django_settings, 'ASKBOT_MULTILINGUAL', False):
+            filter_parameters['language_code'] = get_language()
+
+        return self.filter(**filter_parameters)
+
 
 class ThreadManager(BaseQuerySetManager):
 
@@ -77,7 +101,7 @@ class ThreadManager(BaseQuerySetManager):
             tag_list = tag_list[:5]
             last_topic = _('" and more')
 
-        return '"' + '", "'.join(tag_list) + last_topic
+        return '"' + '", "'.join(tag_list) + unicode(last_topic)
 
     def create(self, *args, **kwargs):
         raise NotImplementedError
@@ -89,15 +113,18 @@ class ThreadManager(BaseQuerySetManager):
                 added_at,
                 wiki,
                 text,
-                tagnames = None,
-                is_anonymous = False,
-                is_private = False,
-                group_id = None,
-                by_email = False,
-                email_address = None
+                tagnames=None,
+                is_anonymous=False,
+                is_private=False,
+                group_id=None,
+                by_email=False,
+                email_address=None,
+                language=None,
             ):
         """creates new thread"""
         # TODO: Some of this code will go to Post.objects.create_new
+
+        language = language or get_language()
 
         thread = super(
             ThreadManager,
@@ -106,7 +133,8 @@ class ThreadManager(BaseQuerySetManager):
             title=title,
             tagnames=tagnames,
             last_activity_at=added_at,
-            last_activity_by=author
+            last_activity_by=author,
+            language_code=language
         )
 
         #todo: code below looks like ``Post.objects.create_new()``
@@ -138,7 +166,7 @@ class ThreadManager(BaseQuerySetManager):
             author=author,
             is_anonymous=is_anonymous,
             text=text,
-            comment=const.POST_STATUS['default_version'],
+            comment=unicode(const.POST_STATUS['default_version']),
             revised_at=added_at,
             by_email=by_email,
             email_address=email_address
@@ -173,6 +201,7 @@ class ThreadManager(BaseQuerySetManager):
     def get_for_query(self, search_query, qs=None):
         """returns a query set of questions,
         matching the full text query
+        todo: move to query set
         """
         if getattr(django_settings, 'ENABLE_HAYSTACK_SEARCH', False):
             from askbot.search.haystack import AskbotSearchQuerySet
@@ -194,7 +223,7 @@ class ThreadManager(BaseQuerySetManager):
                 )
             elif 'postgresql_psycopg2' in askbot.get_database_engine_name():
                 from askbot.search import postgresql
-                return postgresql.run_full_text_search(qs, search_query)
+                return postgresql.run_thread_search(qs, search_query)
             else:
                 return qs.filter(
                     models.Q(title__icontains=search_query) |
@@ -212,11 +241,16 @@ class ThreadManager(BaseQuerySetManager):
         """
         from askbot.conf import settings as askbot_settings # Avoid circular import
 
+        primary_filter = {
+            'posts__post_type': 'question',
+            'posts__deleted': False
+        }
+
+        if getattr(django_settings, 'ASKBOT_MULTILINGUAL', False):
+            primary_filter['language_code'] = get_language()
+
         # TODO: add a possibility to see deleted questions
-        qs = self.filter(
-                posts__post_type='question',
-                posts__deleted=False,
-            ) # (***) brings `askbot_post` into the SQL query, see the ordering section below
+        qs = self.filter(**primary_filter)
 
         if askbot_settings.ENABLE_CONTENT_MODERATION:
             qs = qs.filter(approved = True)
@@ -510,6 +544,7 @@ class Thread(models.Model):
     answer_count = models.PositiveIntegerField(default=0)
     last_activity_at = models.DateTimeField(default=datetime.datetime.now)
     last_activity_by = models.ForeignKey(User, related_name='unused_last_active_in_threads')
+    language_code = models.CharField(max_length=16, default=django_settings.LANGUAGE_CODE)
 
     followed_by     = models.ManyToManyField(User, related_name='followed_threads')
     favorited_by    = models.ManyToManyField(User, through='FavoriteQuestion', related_name='unused_favorite_threads')
@@ -571,6 +606,13 @@ class Thread(models.Model):
             return self.answer_count
         else:
             return self.get_answers(user).count()
+
+    def get_oldest_answer_id(self, user=None):
+        """give oldest visible answer id for the user"""
+        answers = self.get_answers(user=user).order_by('added_at')
+        if len(answers) > 0:
+            return answers[0].id
+        return None
 
     def get_sharing_info(self, visitor=None):
         """returns a dictionary with abbreviated thread sharing info:
@@ -703,7 +745,7 @@ class Thread(models.Model):
         else:
             attr = None
         if attr is not None:
-            return u'%s %s' % (self.title, attr)
+            return u'%s %s' % (self.title, unicode(attr))
         else:
             return self.title
 
@@ -1139,8 +1181,6 @@ class Thread(models.Model):
         """
         Updates Tag associations for a thread to match the given
         tagname string.
-        When tags are removed and their use count hits 0 - the tag is
-        automatically deleted.
         When an added tag does not exist - it is created
         If tag moderation is on - new tags are placed on the queue
 
@@ -1192,10 +1232,6 @@ class Thread(models.Model):
         else:
             added_tags = Tag.objects.none()
 
-        #this is odd: in sqlite you have to delete after creating new tags
-        #somehow sqlite does not continue the id sequence, like postgrjs&mysql do
-        delete_tags(unused_tags)#tags with used_count == 0 are deleted
-
         #Save denormalized tag names on thread. Preserve order from user input.
         accepted_added_tags = filter_accepted_tags(added_tags)
         added_tagnames = set([tag.name for tag in accepted_added_tags])
@@ -1230,7 +1266,7 @@ class Thread(models.Model):
         self.update_summary_html() # regenerate question/thread summary html
         ####################################################################
         #if there are any modified tags, update their use counts
-        modified_tags = set(modified_tags) - set(unused_tags)
+        modified_tags = set(modified_tags)
         if modified_tags:
             Tag.objects.update_use_counts(modified_tags)
             signals.tags_updated.send(None,
@@ -1253,10 +1289,10 @@ class Thread(models.Model):
         tag_names.append(tag_name)
 
         self.retag(
-            retagged_by = user,
-            retagged_at = timestamp,
-            tagnames = ' '.join(tag_names),
-            silent = silent
+            retagged_by=user,
+            retagged_at=timestamp,
+            tagnames=' '.join(tag_names),
+            silent=silent
         )
 
     def retag(self, retagged_by=None, retagged_at=None, tagnames=None, silent=False):
@@ -1286,13 +1322,13 @@ class Thread(models.Model):
         # Create a new revision
         latest_revision = thread_question.get_latest_revision()
         PostRevision.objects.create(
-            post = thread_question,
-            title      = latest_revision.title,
-            author     = retagged_by,
-            revised_at = retagged_at,
-            tagnames   = tagnames,
-            summary    = const.POST_STATUS['retagged'],
-            text       = latest_revision.text
+            post=thread_question,
+            title=latest_revision.title,
+            author=retagged_by,
+            revised_at=retagged_at,
+            tagnames=tagnames,
+            summary=unicode(const.POST_STATUS['retagged']),
+            text=latest_revision.text
         )
 
     def has_favorite_by_user(self, user):
@@ -1356,7 +1392,7 @@ class Thread(models.Model):
         #because we do not include any visitor-related info in the cache key
         #ideally cache should be shareable between users, so straight up
         #using the user id for cache is wrong, we could use group
-        #memberships, but in that case we'd need to be more careful with 
+        #memberships, but in that case we'd need to be more careful with
         #cache invalidation
         context = {
             'thread': self,
@@ -1425,16 +1461,35 @@ class AnonymousQuestion(DraftContent):
     tagnames = models.CharField(max_length=125)
     is_anonymous = models.BooleanField(default=False)
 
-    def publish(self,user):
+    def publish(self, user):
         added_at = datetime.datetime.now()
         #todo: wrong - use User.post_question() instead
-        Thread.objects.create_new(
-            title = self.title,
-            added_at = added_at,
-            author = user,
-            wiki = self.wiki,
-            is_anonymous = self.is_anonymous,
-            tagnames = self.tagnames,
-            text = self.text,
-        )
-        self.delete()
+        try:
+            user.assert_can_post_text(self.text)
+            Thread.objects.create_new(
+                title = self.title,
+                added_at = added_at,
+                author = user,
+                wiki = self.wiki,
+                is_anonymous = self.is_anonymous,
+                tagnames = self.tagnames,
+                text = self.text,
+            )
+            self.delete()
+        except django_exceptions.PermissionDenied, error:
+            #delete previous draft questions (only one is allowed anyway)
+            prev_drafts = DraftQuestion.objects.filter(author=user)
+            prev_drafts.delete()
+            #convert this question to draft
+            DraftQuestion.objects.create(
+                            author=user,
+                            title=self.title,
+                            text=self.text,
+                            tagnames=self.tagnames
+                        )
+            #add message with a link to the ask page
+            extra_message = _(
+                'Please, <a href="%s">review your question</a>.'
+            ) % reverse('ask')
+            message = string_concat(unicode(error), u' ', extra_message)
+            user.message_set.create(message=unicode(message))

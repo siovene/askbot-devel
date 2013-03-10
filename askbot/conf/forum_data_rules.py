@@ -5,7 +5,7 @@ from askbot.conf.settings_wrapper import settings
 from askbot.deps import livesettings
 from askbot import const
 from askbot.conf.super_groups import DATA_AND_FORMATTING
-from django.utils.translation import ugettext as _
+from django.utils.translation import ugettext_lazy as _
 
 FORUM_DATA_RULES = livesettings.ConfigurationGroup(
                         'FORUM_DATA_RULES',
@@ -163,20 +163,6 @@ settings.register(
         'TAGS_ARE_REQUIRED',
         description = _('Are tags required?'),
         default = False,
-    )
-)
-
-settings.register(
-    livesettings.BooleanValue(
-        FORUM_DATA_RULES,
-        'ENABLE_TAG_MODERATION',
-        default = False,
-        description = _('Enable tag moderation'),
-        help_text = _(
-            'If enabled, any new tags will not be applied '
-            'to the questions, but emailed to the moderators. '
-            'To use this feature, tags must be optional.'
-        )
     )
 )
 

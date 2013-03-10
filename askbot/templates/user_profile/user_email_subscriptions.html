@@ -1,4 +1,5 @@
 {% extends "user_profile/user.html" %}
+{% import "macros.html" as macros %}
 <!-- user_email_subscriptions.html -->
 {% block profilesection %}
     {% trans %}subscriptions{% endtrans %}
@@ -24,5 +25,50 @@
         </div>
     </form>
     </div>
+
+    {% if settings.MULTILINGUAL %}
+    <h2>{% trans %}Subscribed languages{% endtrans %}</h2>
+    <form
+        method="post" 
+        action="{% url user_select_languages view_user.id, view_user.username|slugify %}"
+    >{% csrf_token %}
+        <select multiple name="languages">
+        {% for lang in settings.LANGUAGES_DICT %}
+            <option 
+                value="{{ lang }}"
+                {% if lang in user_languages %}selected="selected"{% endif %}
+            >{{ settings.LANGUAGES_DICT[lang] }}</option>
+        {% endfor %}
+        </select><br/>
+        <input type="submit" class="select-language" value="{% trans %}Save languages{% endtrans %}" />
+    </form>
+    {% endif %}
+
+    {%if settings.SUBSCRIBED_TAG_SELECTOR_ENABLED %}
+        <h2>{% trans %}Subscribed Tags{% endtrans %}</h2>
+            {{
+                macros.tag_list_widget(
+                    subscribed_tag_names,
+                    deletable = True,
+                    css_class = 'subscribed marked-tags special',
+                )
+            }}
+            <br/>
+            <div class="inputs">
+                <input id="subscribedTagInput" autocomplete="off" type="text"/>
+                <input id="subscribedTagAdd" type="submit" value="{% trans %}add{% endtrans%}"/>
+            </div>
+        </div>
+    {%endif%}
+{% endblock %}
+{%block userjs%}
+  <script type='text/javascript'>
+    search = new FullTextSearch();
+    askbot['controllers'] = askbot['controllers'] || {}
+    askbot['controllers']['fullTextSearch'] = search;
+    askbot['urls']['mark_subscribed_tag'] = '{% url mark_subscribed_tag %}';
+    askbot['urls']['unmark_tag'] = '{% url unmark_tag %}';
+  </script>
+  <script type='text/javascript' src='{{"/js/tag_selector.js"|media}}'></script>
 {% endblock %}
 <!-- end user_email_subscriptions.html -->
