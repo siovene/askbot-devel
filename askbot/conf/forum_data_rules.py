@@ -66,6 +66,19 @@ settings.register(
 settings.register(
     livesettings.BooleanValue(
         FORUM_DATA_RULES,
+        'ALLOW_ANSWER_OWN_QUESTIONS',
+        default=True,
+        description=_('Allow answering own questions'),
+        help_text=_(
+            'Check this if you would like to allow users to '
+            'answer their own questions.'
+        )
+    )
+)
+
+settings.register(
+    livesettings.BooleanValue(
+        FORUM_DATA_RULES,
         'ALLOW_POSTING_BEFORE_LOGGING_IN',
         default = True,
         description = _('Allow posting before logging in'),
@@ -354,7 +367,7 @@ settings.register(
     )
 )
 
-#todo: looks like there is a bug in askbot.deps.livesettings 
+#todo: looks like there is a bug in askbot.deps.livesettings
 #that does not allow Integer values with defaults and choices
 settings.register(
     livesettings.StringValue(
