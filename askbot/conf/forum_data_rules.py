@@ -66,6 +66,20 @@ settings.register(
 settings.register(
     livesettings.BooleanValue(
         FORUM_DATA_RULES,
+        'ALLOW_ANSWER_OWN_QUESTIONS',
+        default=True,
+        description=_('Allow answering own questions'),
+        help_text=_(
+            'Check this if you would like to allow users to '
+            'answer their own questions.'
+        )
+    )
+)
+
+
+settings.register(
+    livesettings.BooleanValue(
+        FORUM_DATA_RULES,
         'ALLOW_POSTING_LINKS_ANONYMOUSLY',
         default=False,
         description=_('Allow posting links anonymously'),
